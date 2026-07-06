@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run Python unit tests"
+set -euo pipefail
+
+uv run python -m unittest discover -s "$MISE_CONFIG_ROOT/test" -p '*_test.py' -v

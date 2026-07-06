@@ -1,20 +1,32 @@
 # Contributing
 
-This repo is the KnickKnackLabs starter skeleton for small maintained tools.
-Keep it boring on purpose: new repos should inherit conventions without inheriting product decisions.
+`permissions` is a small KnickKnackLabs policy tool.
+The first supported behavior is a GitHub pull request contribution gate:
+
+```bash
+mise run gate:pull-request --config permissions.toml --event event.json
+```
+
+Keep contribution gates separate from native access reconciliation.
+This repo currently evaluates metadata only.
+It must not checkout or execute untrusted pull request code in `pull_request_target` workflows.
 
 ## Structure
 
 ```text
-template/
-├── mise.toml              # Tools, settings, codebase lint config
-├── README.tsx             # Source for generated README.md
-├── README.md              # Generated; keep in sync with README.tsx
-├── CONTRIBUTING.md        # Repo orientation surface
-├── .mise/tasks/test       # Canonical BATS runner
-├── .mise/tasks/doctor     # Local health checks + optional hook status
-├── lib/                   # Shared runtime code for copied tools
-└── test/                  # BATS tests and helpers
+permissions/
+├── mise.toml                         # Tools, settings, codebase lint config
+├── permissions.toml                  # Example pull request gate policy
+├── README.tsx                        # Source for generated README.md
+├── README.md                         # Generated; keep in sync with README.tsx
+├── CONTRIBUTING.md                   # Repo orientation surface
+├── .mise/tasks/test/_default         # Full suite runner for `mise run test`
+├── .mise/tasks/doctor                # Local health checks and optional hook status
+├── .mise/tasks/gate/pull-request     # Thin uv wrapper for the first gate command
+├── .mise/tasks/test/python           # Python unit tests for helper code
+├── .mise/tasks/lint/python           # Ruff check for Python task/library/test code
+├── lib/permissions.py                # Shared gate parsing/evaluation/output helpers
+└── test/                             # BATS integration tests plus Python unit tests
 ```
 
 ## Local setup
@@ -46,18 +58,25 @@ readme build --check
 
 CI also checks that `README.md` matches `README.tsx`.
 
-## When copying this template
+## Gate scope
 
-1. Rename the project constants in `README.tsx`.
-1. Replace this guide with codebase-specific orientation.
-1. Add real shared code under `lib/` only after at least two tasks need it.
-1. Keep tests calling tasks through `mise run`, not by invoking `.mise/tasks/*` directly.
-1. If the tool resolves caller-relative paths after shiv install, use the package-scoped `<PACKAGE>_CALLER_PWD` variable.
+The first gate slice supports only explicit GitHub users in this form:
+
+```toml
+[gate.pull_request]
+default = "deny"
+allow = ["user:rikonor", "user:brownie-ricon"]
+```
+
+Do not add team expansion, collaborator reconciliation, revocation, GitLab, sourcehut, comments, labels, or close behavior in this slice.
+Unsupported principal types should fail loudly until the policy model is intentionally widened.
 
 ## Validation before merge
 
 ```bash
 mise run test
+mise run lint:python
+mise run doctor
 codebase lint "$PWD"
 readme build --check
 git diff --check

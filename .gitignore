@@ -8,6 +8,8 @@ mise.local.toml
 # Runtime scratch
 *.log
 tmp/
+__pycache__/
+.ruff_cache/
 
 # JavaScript package manager noise if a copied repo grows one
 node_modules/

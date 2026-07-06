@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-#MISE description="Run BATS tests"
+#MISE description="Run the full test suite"
 #MISE dir="{{config_root}}"
 #USAGE arg "[args]" default="" var=#true help="Test suites or bats arguments"
 #USAGE example "mise run test" header="Run all tests"
-#USAGE example "mise run test skeleton" header="Run a specific suite by name"
+#USAGE example "mise run test pull_request_gate" header="Run a specific suite by name"
 #USAGE example "mise run test --filter doctor" header="Filter tests by name"
 set -euo pipefail
 
@@ -34,4 +34,8 @@ if ! $has_target; then
   resolved+=("$TEST_DIR/")
 fi
 
-exec bats --print-output-on-failure "${resolved[@]}"
+bats --print-output-on-failure "${resolved[@]}"
+
+if [ "${#args[@]}" -eq 0 ]; then
+  mise -C "$MISE_CONFIG_ROOT" run test:python
+fi

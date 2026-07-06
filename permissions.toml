@@ -1,0 +1,7 @@
+[gate.pull_request]
+default = "deny"
+allow = [
+  "user:rikonor",
+  "user:brownie-ricon",
+]
+message = "This repo only accepts pull requests from configured principals."
