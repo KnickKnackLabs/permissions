@@ -1,0 +1,29 @@
+name: Permissions Gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+env:
+  MISE_JOBS: 1
+
+jobs:
+  pull-request-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout base branch code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+
+      - name: Evaluate pull request author
+        run: mise run gate:pull-request --config permissions.toml --event "$GITHUB_EVENT_PATH"

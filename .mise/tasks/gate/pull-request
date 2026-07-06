@@ -1,0 +1,63 @@
+#!/usr/bin/env -S uv run --script
+# fmt: off
+#MISE description="Evaluate a GitHub pull request event against permissions.toml"
+#MISE dir="{{config_root}}"
+#USAGE flag "--config <path>" default="permissions.toml" help="Path to permissions.toml"
+#USAGE flag "--event <path>" required=#true help="Path to a GitHub pull_request event JSON file"
+#USAGE flag "--json" default=#false help="Emit machine-readable JSON verdict"
+#USAGE example "mise run gate:pull-request --config permissions.toml --event event.json" header="Evaluate a pull request event"
+#USAGE example "mise run gate:pull-request --config permissions.toml --event event.json --json" header="Emit JSON for workflow consumption"
+# fmt: on
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.environ["MISE_CONFIG_ROOT"] + "/lib")
+from permissions import (  # noqa: E402
+    GateError,
+    evaluate_pull_request,
+    format_human_verdict,
+    format_json_payload,
+    load_config,
+    load_event,
+    resolve_path,
+)
+
+
+def main() -> int:
+    """Evaluate the configured pull request gate and print the requested output."""
+    base_dir = Path(
+        os.environ.get("PERMISSIONS_CALLER_PWD")
+        or os.environ.get("MISE_ORIGINAL_CWD")
+        or os.getcwd()
+    )
+    config_path = resolve_path(base_dir, os.environ["usage_config"])
+    event_path = resolve_path(base_dir, os.environ["usage_event"])
+    json_output = os.environ.get("usage_json") == "true"
+
+    try:
+        verdict = evaluate_pull_request(
+            load_config(config_path), load_event(event_path)
+        )
+    except GateError as exc:
+        if json_output:
+            print(format_json_payload(exc.to_json()))
+        else:
+            print(f"Error: {exc.message}", file=sys.stderr)
+        return exc.exit_code
+
+    if json_output:
+        print(format_json_payload(verdict.to_json()))
+    else:
+        print(format_human_verdict(verdict))
+    return verdict.exit_code
+
+
+raise SystemExit(main())

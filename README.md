@@ -1,15 +1,14 @@
 <div align="center">
 
-# template
+# permissions
 
-**A sane starting point for small KnickKnackLabs tools.**
+**Evaluate repository contribution policy before a pull request gets trusted.**
 
-Copy the boring parts so the interesting parts start sooner.
+A small gate first, broader access reconciliation later.
 
+![gate: pull_request](https://img.shields.io/badge/gate-pull__request-7c3aed?style=flat)
 ![shape: mise + BATS](https://img.shields.io/badge/shape-mise%20%2B%20BATS-4EAA25?style=flat&logo=gnubash&logoColor=white)
-[![tests: 3](https://img.shields.io/badge/tests-3-brightgreen?style=flat)](test/)
-![lints: 9](https://img.shields.io/badge/lints-9-blue?style=flat)
-![README: TSX](https://img.shields.io/badge/README-TSX-f472b6?style=flat)
+[![tests: 19](https://img.shields.io/badge/tests-19-brightgreen?style=flat)](test/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
 
 </div>
@@ -18,109 +17,81 @@ Copy the boring parts so the interesting parts start sooner.
 
 ## What this is
 
-`template` is the default empty room for a new KnickKnackLabs tool: mise-managed tasks, BATS tests, codebase convention lints, generated README, CI, and a `doctor` task that tells you whether your clone has the optional local pre-commit hook installed.
+`permissions` is a config-driven policy tool for repository stewardship. The first slice is a pull request gate: read GitHub event metadata, read `permissions.toml`, and exit with a verdict about the pull request author.
 
-This is deliberately a normal repo, not a GitHub template repo. Copy the files, start fresh history for the new tool, and keep this repo as the living reference skeleton.
-
-It intentionally does **not** decide what your product does. Copy it, rename the obvious constants, then add the first real command only when the workflow is clear.
+Contribution gates answer “may this event proceed?” Access reconciliation answers “what native forge permissions should exist?” This repo starts with the gate because it can run safely from event metadata before broader access commands exist.
 
 ## Quick start
 
 ```bash
-gh repo clone KnickKnackLabs/template my-tool
-cd my-tool
+cat > permissions.toml <<'TOML'
+[gate.pull_request]
+default = "deny"
+allow = ["user:rikonor", "user:brownie-ricon"]
+message = "This repo only accepts pull requests from configured principals."
+TOML
 
-# Start the new tool with its own history instead of inheriting template commits.
-rm -rf .git
-git init -b main
+# GitHub writes this shape to $GITHUB_EVENT_PATH in pull request workflows.
+cat > event.json <<'JSON'
+{"pull_request":{"user":{"login":"brownie-ricon"}}}
+JSON
 
-mise trust
-mise install
-mise run test
-mise run doctor
-
-# Optional local safety net: installs .git/hooks/pre-commit.d/codebase
-codebase pre-commit
-
-# When the skeleton is shaped for the new tool, create and push its repo.
-git add .
-git commit -m "chore: start from KKL tool skeleton"
-gh repo create KnickKnackLabs/my-tool --public --source=. --remote=origin --push
+# This first PR is unreleased, so run the repo-local mise task directly:
+mise run gate:pull-request --config permissions.toml --event event.json
+mise run gate:pull-request --config permissions.toml --event event.json --json
 ```
 
-## Goodies baked in
+## Gate behavior
 
-| Goodie            | Why it exists                                                                                            | Where                        |
-| ----------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Generated README  | TSX can count tests, list tasks, and keep docs honest in CI.                                             | `README.tsx`                 |
-| Doctor hook check | Local pre-commit hooks are clone-local, so the repo can report them without pretending they are tracked. | `mise run doctor`            |
-| Convention lints  | Best-practice drift gets caught as code, not folklore.                                                   | `[_.codebase].lint`          |
-| Real test path    | BATS tests call tasks through `mise run`, not raw scripts.                                               | `test/test_helper.bash`      |
-| Mac + Linux CI    | Bash and tooling differences show up before merge.                                                       | ubuntu-latest + macos-latest |
+This first policy model supports only explicit GitHub users. Allow entries use the `user:<login>` form. Unknown users receive a deny verdict. Unsupported principal types such as teams are rejected as malformed policy so the gate cannot accidentally overclaim support.
 
-## Scaffold inventory
-
-| Path                         | Status | Purpose                                     |
-| ---------------------------- | ------ | ------------------------------------------- |
-| `mise.toml`                  | ✓      | tools, settings, and codebase lint config   |
-| `README.tsx`                 | ✓      | programmable README source                  |
-| `CONTRIBUTING.md`            | ✓      | repo-entry orientation surface              |
-| `.mise/tasks/test`           | ✓      | canonical BATS runner                       |
-| `.mise/tasks/doctor`         | ✓      | local health check plus hook hint           |
-| `.github/workflows/test.yml` | ✓      | Ubuntu/macOS CI                             |
-| `test/`                      | ✓      | BATS smoke coverage                         |
-| `lib/`                       | ✓      | shared runtime code starts here when needed |
-
-## Tasks
-
-| Task              | Description                   |
-| ----------------- | ----------------------------- |
-| `mise run doctor` | Check local development setup |
-| `mise run test`   | Run BATS tests                |
-
-## When you copy it
-
-1. Rename `PROJECT` in `README.tsx`.
-2. Rewrite this README around the actual tool, but keep the dynamic counters if they help.
-3. Replace `CONTRIBUTING.md` with repo-specific orientation.
-4. Add real task files under `.mise/tasks/`; use `$MISE_CONFIG_ROOT` inside tasks only.
-5. Put shared Bash helpers in `lib/` only once multiple tasks need them.
-6. If the installed tool resolves caller-relative paths, read the shiv-provided `<PACKAGE>_CALLER_PWD` variable, not generic `CALLER_PWD`.
-
-<details>
-<summary><b>Current convention checks</b></summary>
-
-This template currently asks [codebase](https://github.com/KnickKnackLabs/codebase) to run these lint rules:
-
-```
-mise-settings
-bats-test-helper
-bats-test-task
-mcr-scope
-or-true
-shellcheck
-gum-table
-caller-pwd-contract
-github-actions
+```toml
+[gate.pull_request]
+default = "deny"
+allow = [
+  "user:rikonor",
+  "user:brownie-ricon",
+]
+message = "This repo only accepts pull requests from configured principals."
 ```
 
-</details>
+| Case            | Exit | Meaning                                                           |
+| --------------- | ---- | ----------------------------------------------------------------- |
+| Allowed author  | `0`  | The author matched a configured `user:<login>` principal.         |
+| Denied author   | `1`  | The event was readable, but the author was outside the allowlist. |
+| Malformed input | `2`  | The config or event shape was invalid for this gate.              |
+
+## Workflow safety
+
+The included `pull_request_target` workflow runs the metadata gate only. It checks out the base branch version of this repository, reads GitHub's event JSON from `$GITHUB_EVENT_PATH`, and leaves pull request head code untouched.
+
+## Local development
+
+1. Run `mise trust` after cloning.
+2. Run `mise install` to install BATS, uv, codebase, and readme.
+3. Use `mise run test` for the full local suite.
+4. Use `mise run test:python` when iterating only on policy helper unit tests.
+5. Use `mise run lint:python` for Ruff checks.
+6. Use `mise run doctor` to check README freshness, convention lints, and optional hook state.
+7. Regenerate docs with `readme build` after editing `README.tsx`.
 
 ## Validation
 
 ```bash
 mise run test
+mise run lint:python
+mise run doctor
 codebase lint "$PWD"
 readme build --check
 git diff --check
 ```
 
-The starter suite currently has **3 tests** and **2 public tasks**. Those numbers are read from the repo at README build time.
+The suite currently has **19 tests** across CLI integration and policy helper coverage. The count is read from the repo at README build time.
 
 <div align="center">
 
 ---
 
 <sub>
-This README was generated from `README.tsx` with [KnickKnackLabs/readme](https://github.com/KnickKnackLabs/readme).<br />A skeleton is a kindness to whoever has to remember the boring parts tomorrow.
+This README was generated from `README.tsx` with [KnickKnackLabs/readme](https://github.com/KnickKnackLabs/readme).<br />Trust metadata before you trust code.
 </sub></div>

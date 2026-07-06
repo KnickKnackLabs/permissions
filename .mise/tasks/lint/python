@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Lint and format-check Python code with Ruff"
+set -euo pipefail
+
+targets=(
+  "$MISE_CONFIG_ROOT/lib"
+  "$MISE_CONFIG_ROOT/test"
+)
+
+while IFS= read -r task; do
+  targets+=("$task")
+done < <(
+  find "$MISE_CONFIG_ROOT/.mise/tasks" -type f -perm -111 -print | while IFS= read -r task; do
+    if head -n 1 "$task" | grep -Eq 'python|uv run --script'; then
+      printf '%s\n' "$task"
+    fi
+  done
+)
+
+ruff check "${targets[@]}"
+ruff format --check "${targets[@]}"

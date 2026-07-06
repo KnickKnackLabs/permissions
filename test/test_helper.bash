@@ -1,8 +1,41 @@
 #!/usr/bin/env bash
-# Shared fixtures for template tests.
+# Shared fixtures for permissions tests.
 
-# Run a repo task through mise so tests exercise the real task path.
-template() {
-  cd "$REPO_DIR" && mise run -q "$@"
+# Run permissions tasks through mise so tests exercise the real task path.
+permissions() {
+  cd "$REPO_DIR" && PERMISSIONS_CALLER_PWD="${PERMISSIONS_CALLER_PWD:-$PWD}" mise run -q "$@"
 }
-export -f template
+export -f permissions
+
+write_policy() {
+  local path="$1"
+  cat > "$path" <<'TOML'
+[gate.pull_request]
+default = "deny"
+allow = [
+  "user:rikonor",
+  "user:brownie-ricon",
+]
+message = "This repo only accepts pull requests from configured principals."
+TOML
+}
+
+write_event() {
+  local path="$1"
+  local login="$2"
+  python - "$path" "$login" <<'PY'
+import json
+import sys
+
+path, login = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"pull_request": {"user": {"login": login}}}, fh)
+PY
+}
+
+setup_workdir() {
+  WORK_DIR="$BATS_TEST_TMPDIR/work"
+  mkdir -p "$WORK_DIR"
+  export WORK_DIR
+  export PERMISSIONS_CALLER_PWD="$WORK_DIR"
+}
