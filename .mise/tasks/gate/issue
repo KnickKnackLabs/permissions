@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.environ["MISE_CONFIG_ROOT"] + "/lib")
+from github import team_resolver_from_env  # noqa: E402
 from permissions import (  # noqa: E402
     GateError,
     evaluate_issue,
@@ -43,7 +44,11 @@ def main() -> int:
     json_output = os.environ.get("usage_json") == "true"
 
     try:
-        verdict = evaluate_issue(load_config(config_path), load_event(event_path))
+        verdict = evaluate_issue(
+            load_config(config_path),
+            load_event(event_path),
+            team_resolver=team_resolver_from_env(os.environ),
+        )
     except GateError as exc:
         if json_output:
             print(format_json_payload(exc.to_json()))

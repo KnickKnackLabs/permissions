@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.environ["MISE_CONFIG_ROOT"] + "/lib")
 
+from github import team_resolver_from_env  # noqa: E402
 from action import (  # noqa: E402
     apply_denied_side_effects,
     evaluate_from_paths,
@@ -58,6 +59,7 @@ def main() -> int:
             config=os.environ.get("INPUT_CONFIG", "permissions.toml"),
             event=event,
             workspace=Path(os.environ.get("GITHUB_WORKSPACE") or os.getcwd()),
+            team_resolver=team_resolver_from_env(os.environ),
         )
     except GateError as exc:
         write_outputs(output_path, {"allowed": "false", "error": exc.message})

@@ -6,10 +6,30 @@ import json
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 GateName = Literal["pull-request", "issue"]
 PolicyDefault = Literal["allow", "deny"]
+PrincipalKind = Literal["user", "team"]
+
+
+class TeamResolver(Protocol):
+    """Resolves GitHub team principals for a login."""
+
+    def is_team_member(self, *, org: str, slug: str, login: str) -> bool:
+        """Return whether login belongs to org/team slug."""
+        ...
+
+
+@dataclass(frozen=True)
+class Principal:
+    """A parsed policy principal."""
+
+    raw: str
+    kind: PrincipalKind
+    login: str | None = None
+    org: str | None = None
+    team_slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -117,29 +137,47 @@ def load_event(path: Path) -> dict[str, Any]:
     return event
 
 
-def evaluate_gate(gate: str, config: dict[str, Any], event: dict[str, Any]) -> Verdict:
+def evaluate_gate(
+    gate: str,
+    config: dict[str, Any],
+    event: dict[str, Any],
+    *,
+    team_resolver: TeamResolver | None = None,
+) -> Verdict:
     """Evaluate a supported event gate against the configured policy."""
     normalized = normalize_gate(gate)
     if normalized == "pull-request":
-        return evaluate_pull_request(config, event)
-    return evaluate_issue(config, event)
+        return evaluate_pull_request(config, event, team_resolver=team_resolver)
+    return evaluate_issue(config, event, team_resolver=team_resolver)
 
 
-def evaluate_pull_request(config: dict[str, Any], event: dict[str, Any]) -> Verdict:
+def evaluate_pull_request(
+    config: dict[str, Any],
+    event: dict[str, Any],
+    *,
+    team_resolver: TeamResolver | None = None,
+) -> Verdict:
     """Evaluate a GitHub pull request event against the configured gate policy."""
     return _evaluate_author_gate(
         gate="pull-request",
         policy=_gate_policy(config, "pull_request"),
         login=_pull_request_login(event),
+        team_resolver=team_resolver,
     )
 
 
-def evaluate_issue(config: dict[str, Any], event: dict[str, Any]) -> Verdict:
+def evaluate_issue(
+    config: dict[str, Any],
+    event: dict[str, Any],
+    *,
+    team_resolver: TeamResolver | None = None,
+) -> Verdict:
     """Evaluate a GitHub issue event against the configured gate policy."""
     return _evaluate_author_gate(
         gate="issue",
         policy=_gate_policy(config, "issue"),
         login=_issue_login(event),
+        team_resolver=team_resolver,
     )
 
 
@@ -160,7 +198,11 @@ def format_json_payload(payload: dict[str, Any]) -> str:
 
 
 def _evaluate_author_gate(
-    gate: GateName, policy: dict[str, Any], login: str
+    gate: GateName,
+    policy: dict[str, Any],
+    login: str,
+    *,
+    team_resolver: TeamResolver | None,
 ) -> Verdict:
     default = _default(policy, gate)
     allow = _principal_list(policy, "allow", gate)
@@ -170,18 +212,31 @@ def _evaluate_author_gate(
     actor = f"user:{login}"
     policy_key = _policy_key(gate)
 
-    if actor in deny:
+    matched_deny = _matched_principal(
+        deny,
+        login=login,
+        team_resolver=team_resolver,
+        field=f"gate.{policy_key}.deny",
+    )
+    matched_allow = _matched_principal(
+        allow,
+        login=login,
+        team_resolver=team_resolver,
+        field=f"gate.{policy_key}.allow",
+    )
+
+    if matched_deny is not None:
         allowed = False
-        reason = f"matched deny entry {actor}"
-    elif actor in allow:
+        reason = f"matched deny entry {matched_deny.raw}"
+    elif matched_allow is not None:
         allowed = True
-        reason = f"matched allow entry {actor}"
+        reason = f"matched allow entry {matched_allow.raw}"
     elif default == "allow":
         allowed = True
         reason = f"gate.{policy_key}.default is allow"
     else:
         allowed = False
-        reason = f"{actor} is not in gate.{policy_key}.allow"
+        reason = f"{actor} did not match gate.{policy_key}.allow"
 
     return Verdict(
         allowed=allowed,
@@ -190,6 +245,45 @@ def _evaluate_author_gate(
         reason=reason,
         gate=gate,
         message=message,
+    )
+
+
+def _matched_principal(
+    principals: list[Principal],
+    *,
+    login: str,
+    team_resolver: TeamResolver | None,
+    field: str,
+) -> Principal | None:
+    for principal in principals:
+        if _principal_matches(
+            principal, login=login, team_resolver=team_resolver, field=field
+        ):
+            return principal
+    return None
+
+
+def _principal_matches(
+    principal: Principal,
+    *,
+    login: str,
+    team_resolver: TeamResolver | None,
+    field: str,
+) -> bool:
+    if principal.kind == "user":
+        return principal.login == login
+
+    if team_resolver is None:
+        raise GateError(
+            "team principals require a GitHub token that can read organization team membership",
+            field=field,
+        )
+    if principal.org is None or principal.team_slug is None:
+        raise GateError(f"invalid team principal: {principal.raw}", field=field)
+    return team_resolver.is_team_member(
+        org=principal.org,
+        slug=principal.team_slug,
+        login=login,
     )
 
 
@@ -214,34 +308,46 @@ def _default(policy: dict[str, Any], gate: GateName) -> PolicyDefault:
     raise GateError(f'{field} must be "deny" or "allow"', field=field)
 
 
-def _principal_list(policy: dict[str, Any], key: str, gate: GateName) -> list[str]:
+def _principal_list(
+    policy: dict[str, Any], key: str, gate: GateName
+) -> list[Principal]:
     field = f"gate.{_policy_key(gate)}.{key}"
-    principals = policy.get(key, [])
-    if not isinstance(principals, list) or not all(
-        isinstance(item, str) for item in principals
+    raw_principals = policy.get(key, [])
+    if not isinstance(raw_principals, list) or not all(
+        isinstance(item, str) for item in raw_principals
     ):
         raise GateError(
             f"{field} must be a list of strings",
             field=field,
         )
 
-    unsupported = [
-        principal for principal in principals if not principal.startswith("user:")
-    ]
-    if unsupported:
-        unsupported_list = ", ".join(sorted(unsupported))
-        raise GateError(
-            f"unsupported principals in {key} list: {unsupported_list}",
-            field=field,
-        )
+    return [_parse_principal(raw, field=field) for raw in raw_principals]
 
-    if "user:" in principals:
-        raise GateError(
-            "user principals must include a non-empty login",
-            field=field,
-        )
 
-    return principals
+def _parse_principal(raw: str, *, field: str) -> Principal:
+    if raw.startswith("user:"):
+        login = raw.removeprefix("user:")
+        if not login:
+            raise GateError(
+                "user principals must include a non-empty login",
+                field=field,
+            )
+        return Principal(raw=raw, kind="user", login=login)
+
+    if raw.startswith("team:"):
+        team = raw.removeprefix("team:")
+        parts = team.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise GateError(
+                "team principals must use team:<org>/<team-slug>",
+                field=field,
+            )
+        return Principal(raw=raw, kind="team", org=parts[0], team_slug=parts[1])
+
+    raise GateError(
+        f"unsupported principal: {raw}",
+        field=field,
+    )
 
 
 def _pull_request_login(event: dict[str, Any]) -> str:

@@ -27,6 +27,16 @@ from permissions import (  # noqa: E402
 )
 
 
+class FakeTeamResolver:
+    def __init__(self, memberships: set[tuple[str, str, str]]) -> None:
+        self.memberships = memberships
+        self.calls: list[tuple[str, str, str]] = []
+
+    def is_team_member(self, *, org: str, slug: str, login: str) -> bool:
+        self.calls.append((org, slug, login))
+        return (org, slug, login) in self.memberships
+
+
 class PathResolutionTest(unittest.TestCase):
     def test_resolve_path_uses_base_dir_for_relative_paths(self) -> None:
         base_dir = Path("/tmp/example-caller")
@@ -173,7 +183,53 @@ class PullRequestEvaluationTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.field, "gate.pull_request.default")
 
-    def test_unsupported_principal_types_are_rejected(self) -> None:
+    def test_team_allow_permits_members(self) -> None:
+        resolver = FakeTeamResolver({("KnickKnackLabs", "agents", "brownie-ricon")})
+
+        verdict = evaluate_pull_request(
+            {
+                "gate": {
+                    "pull_request": {
+                        "default": "deny",
+                        "allow": ["team:KnickKnackLabs/agents"],
+                    }
+                }
+            },
+            {"pull_request": {"number": 3, "user": {"login": "brownie-ricon"}}},
+            team_resolver=resolver,
+        )
+
+        self.assertTrue(verdict.allowed)
+        self.assertEqual(
+            verdict.reason, "matched allow entry team:KnickKnackLabs/agents"
+        )
+        self.assertEqual(
+            resolver.calls, [("KnickKnackLabs", "agents", "brownie-ricon")]
+        )
+
+    def test_team_deny_overrides_user_allow(self) -> None:
+        resolver = FakeTeamResolver({("KnickKnackLabs", "blocked", "brownie-ricon")})
+
+        verdict = evaluate_pull_request(
+            {
+                "gate": {
+                    "pull_request": {
+                        "default": "deny",
+                        "allow": ["user:brownie-ricon"],
+                        "deny": ["team:KnickKnackLabs/blocked"],
+                    }
+                }
+            },
+            {"pull_request": {"number": 3, "user": {"login": "brownie-ricon"}}},
+            team_resolver=resolver,
+        )
+
+        self.assertFalse(verdict.allowed)
+        self.assertEqual(
+            verdict.reason, "matched deny entry team:KnickKnackLabs/blocked"
+        )
+
+    def test_team_principal_requires_resolver(self) -> None:
         with self.assertRaises(GateError) as raised:
             evaluate_pull_request(
                 {
@@ -184,29 +240,47 @@ class PullRequestEvaluationTest(unittest.TestCase):
                         }
                     }
                 },
-                {"pull_request": {"user": {"login": "brownie-ricon"}}},
+                {"pull_request": {"number": 3, "user": {"login": "brownie-ricon"}}},
             )
 
         self.assertEqual(raised.exception.field, "gate.pull_request.allow")
-        self.assertIn("unsupported principals in allow list", raised.exception.message)
-        self.assertIn("team:KnickKnackLabs/agents", raised.exception.message)
+        self.assertIn("team principals require", raised.exception.message)
 
-    def test_unsupported_deny_principal_types_are_rejected(self) -> None:
+    def test_invalid_team_principal_shape_is_rejected(self) -> None:
         with self.assertRaises(GateError) as raised:
             evaluate_pull_request(
                 {
                     "gate": {
                         "pull_request": {
-                            "default": "allow",
-                            "deny": ["team:KnickKnackLabs/blocked"],
+                            "default": "deny",
+                            "allow": ["team:KnickKnackLabs"],
                         }
                     }
                 },
-                {"pull_request": {"user": {"login": "brownie-ricon"}}},
+                {"pull_request": {"number": 3, "user": {"login": "brownie-ricon"}}},
             )
 
-        self.assertEqual(raised.exception.field, "gate.pull_request.deny")
-        self.assertIn("unsupported principals in deny list", raised.exception.message)
+        self.assertEqual(raised.exception.field, "gate.pull_request.allow")
+        self.assertIn("team:<org>/<team-slug>", raised.exception.message)
+
+    def test_unsupported_principal_types_are_rejected(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            evaluate_pull_request(
+                {
+                    "gate": {
+                        "pull_request": {
+                            "default": "deny",
+                            "allow": ["org:KnickKnackLabs"],
+                        }
+                    }
+                },
+                {"pull_request": {"number": 3, "user": {"login": "brownie-ricon"}}},
+            )
+
+        self.assertEqual(raised.exception.field, "gate.pull_request.allow")
+        self.assertIn(
+            "unsupported principal: org:KnickKnackLabs", raised.exception.message
+        )
 
     def test_missing_login_is_rejected(self) -> None:
         with self.assertRaises(GateError) as raised:
@@ -257,7 +331,7 @@ class IssueEvaluationTest(unittest.TestCase):
 
         self.assertFalse(verdict.allowed)
         self.assertEqual(verdict.actor, "user:stranger")
-        self.assertEqual(verdict.reason, "user:stranger is not in gate.issue.allow")
+        self.assertEqual(verdict.reason, "user:stranger did not match gate.issue.allow")
         self.assertEqual(verdict.exit_code, 1)
 
     def test_issue_gate_rejects_pull_request_conversation_events(self) -> None:
@@ -299,7 +373,7 @@ class FormattingTest(unittest.TestCase):
             allowed=False,
             actor="user:stranger",
             login="stranger",
-            reason="user:stranger is not in gate.pull_request.allow",
+            reason="user:stranger did not match gate.pull_request.allow",
             gate="pull-request",
             message="configured principals only",
         )
@@ -307,7 +381,7 @@ class FormattingTest(unittest.TestCase):
         self.assertEqual(
             format_human_verdict(verdict),
             "✗ denied: pull request author user:stranger "
-            "(user:stranger is not in gate.pull_request.allow)\n"
+            "(user:stranger did not match gate.pull_request.allow)\n"
             "configured principals only",
         )
 
@@ -316,14 +390,14 @@ class FormattingTest(unittest.TestCase):
             allowed=False,
             actor="user:stranger",
             login="stranger",
-            reason="user:stranger is not in gate.issue.allow",
+            reason="user:stranger did not match gate.issue.allow",
             gate="issue",
         )
 
         self.assertEqual(
             format_human_verdict(verdict),
             "✗ denied: issue author user:stranger "
-            "(user:stranger is not in gate.issue.allow)",
+            "(user:stranger did not match gate.issue.allow)",
         )
 
     def test_json_payload_is_stable_and_machine_readable(self) -> None:

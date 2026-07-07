@@ -111,12 +111,12 @@ const readme = (
 cat > permissions.toml <<'TOML'
 [gate.pull_request]
 default = "deny"
-allow = ["user:rikonor", "user:brownie-ricon"]
+allow = ["user:rikonor", "team:KnickKnackLabs/agents"]
 message = "This repo only accepts pull requests from configured principals."
 
 [gate.issue]
 default = "deny"
-allow = ["user:rikonor", "user:brownie-ricon"]
+allow = ["user:rikonor", "team:KnickKnackLabs/agents"]
 message = "This repo only accepts issues from configured principals."
 TOML
 
@@ -141,10 +141,11 @@ permissions gate pull-request --config permissions.toml --event event.json --jso
       - uses: actions/checkout@v6
         with:
           ref: \${{ github.event.pull_request.base.ref }}
-      - uses: KnickKnackLabs/permissions@v0.3.0
+      - uses: KnickKnackLabs/permissions@v0.4.0
         with:
           gate: pull-request
           on-deny: fail
+          membership-token: \${{ secrets.PERMISSIONS_MEMBERSHIP_TOKEN }}
 
   test:
     needs: permissions
@@ -178,7 +179,7 @@ permissions gate pull-request --config permissions.toml --event event.json --jso
 default = "deny"
 allow = [
   "user:rikonor",
-  "user:brownie-ricon",
+  "team:KnickKnackLabs/agents",
 ]
 message = "This repo only accepts pull requests from configured principals."
 
@@ -192,7 +193,9 @@ message = "This issue was closed by repository policy."`}</CodeBlock>
       <Paragraph>
         {"This release supports explicit GitHub users with "}
         <Code>user:&lt;login&gt;</Code>
-        {" principals. Team expansion is intentionally not implemented yet; unsupported principal types fail as malformed policy instead of silently overclaiming support."}
+        {" principals and GitHub teams with "}
+        <Code>team:&lt;org&gt;/&lt;team-slug&gt;</Code>
+        {" principals. Team principals require a token that can read organization team membership; if team membership cannot be resolved, the gate fails closed."}
       </Paragraph>
 
       <Table>
@@ -226,6 +229,14 @@ message = "This issue was closed by repository policy."`}</CodeBlock>
         {" in their branch and allow themselves. If a pull request workflow uses "}
         <Code>pull_request_target</Code>
         {" so it can close denied PRs, it must not checkout or execute pull request head code."}
+      </Paragraph>
+
+      <Paragraph>
+        {"Team principals are resolved with the "}
+        <Code>membership-token</Code>
+        {" Action input. Use a token with read access to the relevant organization teams. If omitted, the Action falls back to "}
+        <Code>github-token</Code>
+        {" and then GitHub's default workflow token."}
       </Paragraph>
 
       <Paragraph>

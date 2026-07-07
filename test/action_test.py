@@ -220,7 +220,14 @@ class ActionHelperTest(unittest.TestCase):
             ],
         )
         self.assertEqual(calls[1][3], {"labels": ["permissions-denied"]})
-        self.assertIn("Denied principal: `user:stranger`", str(calls[2][3]["body"]))
+        comment_body = str(calls[2][3]["body"])
+        self.assertIn(
+            "[permissions](https://github.com/KnickKnackLabs/permissions)",
+            comment_body,
+        )
+        self.assertIn("@stranger is not currently allowed", comment_body)
+        self.assertIn("`gate.issue` policy", comment_body)
+        self.assertNotIn("user:stranger", comment_body)
         self.assertEqual(
             notes,
             [

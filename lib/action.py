@@ -6,6 +6,7 @@ import json
 import urllib.error
 import urllib.request
 from pathlib import Path
+from textwrap import dedent
 from typing import Any
 
 from permissions import (
@@ -21,7 +22,12 @@ DEFAULT_DENY_LABEL = "permissions-denied"
 
 
 def evaluate_from_paths(
-    *, gate: str, config: str, event: str, workspace: Path
+    *,
+    gate: str,
+    config: str,
+    event: str,
+    workspace: Path,
+    team_resolver: Any = None,
 ) -> tuple[Verdict, dict[str, Any]]:
     """Evaluate a gate from Action input paths."""
     event_payload = load_event(resolve_path(workspace, event))
@@ -29,6 +35,7 @@ def evaluate_from_paths(
         gate,
         load_config(resolve_path(workspace, config)),
         event_payload,
+        team_resolver=team_resolver,
     )
     return verdict, event_payload
 
@@ -194,16 +201,39 @@ def create_comment(
 
 def deny_comment_body(verdict: Verdict) -> str:
     """Return the default comment body for a denied event."""
-    subject = "pull request" if verdict.gate == "pull-request" else verdict.gate
-    lines = [
-        f"This {subject} was closed by repository permissions policy.",
-        "",
-        f"Denied principal: `{verdict.actor}`",
-        f"Reason: {verdict.reason}",
-    ]
-    if verdict.message:
-        lines.extend(["", verdict.message])
-    return "\n".join(lines)
+    if verdict.gate == "pull-request":
+        return pull_request_deny_comment(verdict.login)
+    return issue_deny_comment(verdict.login)
+
+
+def issue_deny_comment(login: str) -> str:
+    """Return the default comment body for a denied issue."""
+    return dedent(
+        f"""
+        Thanks for opening this. This repository uses [permissions](https://github.com/KnickKnackLabs/permissions)
+        to limit who can open issues.
+
+        @{login} is not currently allowed by this repository's `gate.issue` policy,
+        so this issue was closed automatically.
+
+        If you think this is a mistake, please contact a maintainer.
+        """
+    ).strip()
+
+
+def pull_request_deny_comment(login: str) -> str:
+    """Return the default comment body for a denied pull request."""
+    return dedent(
+        f"""
+        Thanks for the contribution. This repository uses [permissions](https://github.com/KnickKnackLabs/permissions)
+        to limit who can open pull requests.
+
+        @{login} is not currently allowed by this repository's `gate.pull_request` policy,
+        so this pull request was closed automatically.
+
+        If you think this is a mistake, please contact a maintainer.
+        """
+    ).strip()
 
 
 def event_number(verdict: Verdict, event: dict[str, Any]) -> int:

@@ -24,7 +24,7 @@ setup() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"denied"* ]]
-  [[ "$output" == *"user:stranger is not in gate.pull_request.allow"* ]]
+  [[ "$output" == *"user:stranger did not match gate.pull_request.allow"* ]]
 }
 
 @test "emits JSON verdicts" {
@@ -53,7 +53,7 @@ PY
   [[ "$output" == *"event is missing pull_request.user.login"* ]]
 }
 
-@test "rejects unsupported principal types in the first slice" {
+@test "team principals require membership resolution" {
   cat > "$WORK_DIR/permissions.toml" <<'TOML'
 [gate.pull_request]
 default = "deny"
@@ -61,11 +61,24 @@ allow = ["team:KnickKnackLabs/agents"]
 TOML
   write_event "$WORK_DIR/event.json" "brownie-ricon"
 
+  run bash -c 'unset PERMISSIONS_MEMBERSHIP_TOKEN GITHUB_TOKEN GH_TOKEN; permissions gate pull-request --config permissions.toml --event event.json'
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"team principals require"* ]]
+}
+
+@test "rejects unsupported principal types" {
+  cat > "$WORK_DIR/permissions.toml" <<'TOML'
+[gate.pull_request]
+default = "deny"
+allow = ["org:KnickKnackLabs"]
+TOML
+  write_event "$WORK_DIR/event.json" "brownie-ricon"
+
   run permissions gate pull-request --config permissions.toml --event event.json
 
   [ "$status" -eq 2 ]
-  [[ "$output" == *"unsupported principals"* ]]
-  [[ "$output" == *"team:KnickKnackLabs/agents"* ]]
+  [[ "$output" == *"unsupported principal: org:KnickKnackLabs"* ]]
 }
 
 @test "README.md is generated from README.tsx" {
