@@ -3,7 +3,13 @@
 
 # Run permissions tasks through mise so tests exercise the real task path.
 permissions() {
-  cd "$REPO_DIR" && PERMISSIONS_CALLER_PWD="${PERMISSIONS_CALLER_PWD:-$PWD}" mise run -q "$@"
+  local args=("$@")
+  if [ "${args[0]-}" = "gate" ] && [ -n "${args[1]-}" ]; then
+    args[0]="gate:${args[1]}"
+    args=("${args[0]}" "${args[@]:2}")
+  fi
+
+  cd "$REPO_DIR" && PERMISSIONS_CALLER_PWD="${PERMISSIONS_CALLER_PWD:-$PWD}" mise run -q "${args[@]}"
 }
 export -f permissions
 
@@ -17,6 +23,14 @@ allow = [
   "user:brownie-ricon",
 ]
 message = "This repo only accepts pull requests from configured principals."
+
+[gate.issue]
+default = "deny"
+allow = [
+  "user:rikonor",
+  "user:brownie-ricon",
+]
+message = "This repo only accepts issues from configured principals."
 TOML
 }
 
@@ -29,7 +43,20 @@ import sys
 
 path, login = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as fh:
-    json.dump({"pull_request": {"user": {"login": login}}}, fh)
+    json.dump({"pull_request": {"number": 2, "user": {"login": login}}}, fh)
+PY
+}
+
+write_issue_event() {
+  local path="$1"
+  local login="$2"
+  python - "$path" "$login" <<'PY'
+import json
+import sys
+
+path, login = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"issue": {"number": 7, "user": {"login": login}}}, fh)
 PY
 }
 

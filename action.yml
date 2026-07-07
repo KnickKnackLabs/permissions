@@ -1,0 +1,60 @@
+name: permissions
+
+description: Evaluate repository contribution policy for GitHub events.
+
+inputs:
+  gate:
+    description: "Gate to evaluate: pull-request or issue."
+    required: true
+  config:
+    description: Path to permissions.toml, relative to GITHUB_WORKSPACE unless absolute.
+    required: false
+    default: permissions.toml
+  event:
+    description: Path to the GitHub event JSON file. Defaults to GITHUB_EVENT_PATH.
+    required: false
+    default: ""
+  on-deny:
+    description: "Deny behavior: fail or close."
+    required: false
+    default: fail
+  github-token:
+    description: GitHub token used when on-deny is close.
+    required: false
+    default: ""
+
+outputs:
+  actor:
+    description: "Normalized actor principal, such as user:octocat."
+    value: ${{ steps.gate.outputs.actor }}
+  allowed:
+    description: Whether the event author is allowed.
+    value: ${{ steps.gate.outputs.allowed }}
+  gate:
+    description: Normalized gate name.
+    value: ${{ steps.gate.outputs.gate }}
+  login:
+    description: GitHub login evaluated by the gate.
+    value: ${{ steps.gate.outputs.login }}
+  reason:
+    description: Machine-readable reason text for the verdict.
+    value: ${{ steps.gate.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install mise
+      uses: jdx/mise-action@v4
+      with:
+        working_directory: ${{ github.action_path }}
+
+    - id: gate
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_GATE: ${{ inputs.gate }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_EVENT: ${{ inputs.event }}
+        INPUT_ON_DENY: ${{ inputs.on-deny }}
+        GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
+      run: mise -C "$ACTION_PATH" run action

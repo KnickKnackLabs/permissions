@@ -10,7 +10,7 @@ setup() {
 @test "allows an explicitly configured pull request author" {
   write_event "$WORK_DIR/event.json" "brownie-ricon"
 
-  run permissions gate:pull-request --config permissions.toml --event event.json
+  run permissions gate pull-request --config permissions.toml --event event.json
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"allowed"* ]]
@@ -20,7 +20,7 @@ setup() {
 @test "denies an unconfigured pull request author" {
   write_event "$WORK_DIR/event.json" "stranger"
 
-  run permissions gate:pull-request --config permissions.toml --event event.json
+  run permissions gate pull-request --config permissions.toml --event event.json
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"denied"* ]]
@@ -30,7 +30,7 @@ setup() {
 @test "emits JSON verdicts" {
   write_event "$WORK_DIR/event.json" "rikonor"
 
-  run permissions gate:pull-request --config permissions.toml --event event.json --json
+  run permissions gate pull-request --config permissions.toml --event event.json --json
 
   [ "$status" -eq 0 ]
   python - "$output" <<'PY'
@@ -47,7 +47,7 @@ PY
 @test "reports malformed events" {
   printf '{"pull_request": {"user": {}}}' > "$WORK_DIR/event.json"
 
-  run permissions gate:pull-request --config permissions.toml --event event.json
+  run permissions gate pull-request --config permissions.toml --event event.json
 
   [ "$status" -eq 2 ]
   [[ "$output" == *"event is missing pull_request.user.login"* ]]
@@ -61,7 +61,7 @@ allow = ["team:KnickKnackLabs/agents"]
 TOML
   write_event "$WORK_DIR/event.json" "brownie-ricon"
 
-  run permissions gate:pull-request --config permissions.toml --event event.json
+  run permissions gate pull-request --config permissions.toml --event event.json
 
   [ "$status" -eq 2 ]
   [[ "$output" == *"unsupported principals"* ]]

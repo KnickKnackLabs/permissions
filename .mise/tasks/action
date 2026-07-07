@@ -1,0 +1,86 @@
+#!/usr/bin/env -S uv run --script
+# fmt: off
+#MISE description="Run the GitHub Action entrypoint"
+#MISE hide=true
+# fmt: on
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.environ["MISE_CONFIG_ROOT"] + "/lib")
+
+from action import (  # noqa: E402
+    close_denied,
+    evaluate_from_paths,
+    outputs_for_verdict,
+    validate_on_deny,
+    write_outputs,
+)
+from permissions import GateError, format_human_verdict  # noqa: E402
+
+
+def main() -> int:
+    """Run the GitHub Action from its environment contract."""
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    on_deny = os.environ.get("INPUT_ON_DENY", "fail")
+
+    try:
+        validate_on_deny(on_deny)
+    except GateError as exc:
+        write_outputs(output_path, {"allowed": "false"})
+        print(f"Error: {exc.message}", file=sys.stderr)
+        return exc.exit_code
+
+    event = os.environ.get("INPUT_EVENT") or os.environ.get("GITHUB_EVENT_PATH", "")
+    if not event:
+        write_outputs(output_path, {"allowed": "false"})
+        print(
+            "Error: event path not provided and GITHUB_EVENT_PATH is unset",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        verdict, event_payload = evaluate_from_paths(
+            gate=os.environ.get("INPUT_GATE", ""),
+            config=os.environ.get("INPUT_CONFIG", "permissions.toml"),
+            event=event,
+            workspace=Path(os.environ.get("GITHUB_WORKSPACE") or os.getcwd()),
+        )
+    except GateError as exc:
+        write_outputs(output_path, {"allowed": "false", "error": exc.message})
+        print(f"Error: {exc.message}", file=sys.stderr)
+        return exc.exit_code
+
+    write_outputs(output_path, outputs_for_verdict(verdict))
+    print(format_human_verdict(verdict))
+    if verdict.allowed:
+        return 0
+
+    if on_deny == "fail":
+        return verdict.exit_code
+
+    try:
+        close_denied(
+            verdict=verdict,
+            event=event_payload,
+            repository=os.environ.get("GITHUB_REPOSITORY", ""),
+            token=os.environ.get("GITHUB_TOKEN", ""),
+            api_url=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+        )
+    except GateError as exc:
+        print(f"Error: {exc.message}", file=sys.stderr)
+        return exc.exit_code
+
+    print(f"Closed denied {verdict.gate} from {verdict.actor}.")
+    return verdict.exit_code
+
+
+raise SystemExit(main())
