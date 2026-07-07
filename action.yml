@@ -22,6 +22,10 @@ inputs:
     description: GitHub token used when on-deny is close.
     required: false
     default: ""
+  membership-token:
+    description: GitHub token used to resolve team:<org>/<slug> principals. Defaults to github-token, then github.token.
+    required: false
+    default: ""
   deny-label:
     description: Label to apply when on-deny is close. Set to an empty string to skip labeling.
     required: false
@@ -67,4 +71,5 @@ runs:
         INPUT_DENY_LABEL: ${{ inputs.deny-label }}
         INPUT_DENY_COMMENT: ${{ inputs.deny-comment }}
         GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
+        GITHUB_MEMBERSHIP_TOKEN: ${{ inputs.membership-token || inputs.github-token || github.token }}
       run: mise -C "$ACTION_PATH" run action

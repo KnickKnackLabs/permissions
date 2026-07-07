@@ -24,7 +24,7 @@ setup() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"denied"* ]]
-  [[ "$output" == *"user:stranger is not in gate.issue.allow"* ]]
+  [[ "$output" == *"user:stranger did not match gate.issue.allow"* ]]
 }
 
 @test "emits JSON issue verdicts" {

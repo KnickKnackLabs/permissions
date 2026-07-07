@@ -20,7 +20,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Evaluate pull request author
-        uses: KnickKnackLabs/permissions@v0.3.0
+        uses: KnickKnackLabs/permissions@v0.4.0
         with:
           gate: pull-request
           on-deny: close
