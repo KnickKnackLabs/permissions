@@ -1,4 +1,4 @@
-name: Permissions Gate
+name: Permissions Pull Request Gate
 
 on:
   pull_request_target:
@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   pull-request-gate:
@@ -15,11 +16,10 @@ jobs:
       - name: Checkout base branch code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Evaluate pull request author
-        uses: ./
+        uses: KnickKnackLabs/permissions@v0.2.0
         with:
           gate: pull-request
-          config: permissions.toml
-          on-deny: fail
+          on-deny: close
