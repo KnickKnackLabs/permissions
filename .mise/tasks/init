@@ -1,0 +1,45 @@
+#!/usr/bin/env -S uv run --script
+# fmt: off
+#MISE description="Initialize permissions.toml and standard GitHub workflows"
+#MISE dir="{{config_root}}"
+#USAGE flag "--gate <gate>" var=#true help="Gate to install: issue or pull-request (repeatable)"
+#USAGE flag "--allow <principal>" var=#true help="Allowed principal: user:<login> or team:<org>/<slug> (repeatable)"
+#USAGE flag "--on-deny <mode>" default="" help="Deny behavior: fail or close"
+#USAGE flag "--membership-token-secret <name>" default="" help="Actions secret name for team membership token"
+#USAGE flag "--action-ref <ref>" default="v0.5.0" help="permissions Action ref to place in generated workflows"
+#USAGE flag "--write" default=#false help="Write files instead of previewing"
+#USAGE flag "--force" default=#false help="Overwrite existing generated files"
+#USAGE flag "--allow-default-membership-token" default=#false help="Allow team workflows without membership-token secret"
+#USAGE flag "--no-interactive" default=#false help="Fail instead of prompting when required inputs are missing"
+#USAGE flag "--json" default=#false help="Output the init plan as JSON"
+#USAGE example "permissions init --gate issue --gate pull-request --allow user:rikonor --on-deny close" header="Preview generated policy and workflows"
+#USAGE example "permissions init --gate issue --allow team:KnickKnackLabs/agents --membership-token-secret PERMISSIONS_MEMBERSHIP_TOKEN --write" header="Write a team-backed issue gate"
+# fmt: on
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["rich>=13"]
+# ///
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.environ["MISE_CONFIG_ROOT"] + "/lib")
+
+from init.cli import run_from_env  # noqa: E402
+from permissions import GateError  # noqa: E402
+
+
+target_root = Path(
+    os.environ.get("PERMISSIONS_CALLER_PWD")
+    or os.environ.get("MISE_ORIGINAL_CWD")
+    or os.getcwd()
+)
+
+try:
+    raise SystemExit(run_from_env(dict(os.environ), root=target_root))
+except GateError as exc:
+    print(f"Error: {exc.message}", file=sys.stderr)
+    raise SystemExit(exc.exit_code)

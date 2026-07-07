@@ -164,6 +164,37 @@ permissions gate pull-request --config permissions.toml --event event.json --jso
       </Paragraph>
     </Section>
 
+    <Section title="Initialize a repo">
+      <Paragraph>
+        <Code>permissions init</Code>
+        {" previews or writes a starter "}
+        <Code>permissions.toml</Code>
+        {" plus standard issue and pull request gate workflows. It is dry-run by default; pass "}
+        <Code>--write</Code>
+        {" to mutate files."}
+      </Paragraph>
+
+      <CodeBlock lang="bash">{`permissions init \
+  --gate issue \
+  --gate pull-request \
+  --allow user:rikonor \
+  --allow team:KnickKnackLabs/agents \
+  --on-deny close \
+  --membership-token-secret PERMISSIONS_MEMBERSHIP_TOKEN
+
+permissions init \
+  --gate issue \
+  --allow user:rikonor \
+  --on-deny fail \
+  --write`}</CodeBlock>
+
+      <Paragraph>
+        {"When team principals are present, init prints token setup guidance. Store a token with "}
+        <Code>read:org</Code>
+        {" as the named membership secret, then generated workflows pass it to the Action. In non-interactive shells, init requires the needed flags and exits with an actionable error instead of prompting."}
+      </Paragraph>
+    </Section>
+
     <Section title="Policy model">
       <Paragraph>
         {"Each gate has a default posture plus explicit principal lists. "}
