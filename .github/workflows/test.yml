@@ -46,3 +46,11 @@ jobs:
         uses: KnickKnackLabs/readme@v0.3.1
         with:
           check: true
+
+      - name: Smoke local Action
+        uses: ./
+        with:
+          gate: pull-request
+          config: permissions.toml
+          event: test/fixtures/pull_request_allowed.json
+          on-deny: fail

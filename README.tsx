@@ -28,8 +28,8 @@ import {
 
 const PROJECT = {
   name: "permissions",
-  oneLine: "Evaluate repository contribution policy before a pull request gets trusted.",
-  tagline: "A small gate first, broader access reconciliation later.",
+  oneLine: "Evaluate repository contribution policy before public events get trusted.",
+  tagline: "Keep the repo public. Gate the event metadata before trusting the event.",
   license: "MIT",
 };
 
@@ -83,8 +83,8 @@ const readme = (
       <Paragraph>{PROJECT.tagline}</Paragraph>
 
       <Badges>
-        <Badge label="gate" value="pull_request" color="7c3aed" />
-        <Badge label="shape" value="mise + BATS" color="4EAA25" logo="gnubash" logoColor="white" />
+        <Badge label="gates" value="pull_request + issue" color="7c3aed" />
+        <Badge label="action" value="mise-backed" color="0ea5e9" />
         <Badge label="tests" value={`${testCount}`} color="brightgreen" href="test/" />
         <Badge label="License" value={PROJECT.license} color="blue" href="LICENSE" />
       </Badges>
@@ -95,39 +95,82 @@ const readme = (
     <Section title="What this is">
       <Paragraph>
         <Code>permissions</Code>
-        {" is a config-driven policy tool for repository stewardship. The first slice is a pull request gate: read GitHub event metadata, read "}
+        {" is a config-driven policy gate for public repositories that want open visibility but restricted participation. It reads GitHub event metadata, reads "}
         <Code>permissions.toml</Code>
-        {", and exit with a verdict about the pull request author."}
+        {", and decides whether the event author is allowed for that gate."}
       </Paragraph>
 
       <Paragraph>
-        {"Contribution gates answer “may this event proceed?” Access reconciliation answers “what native forge permissions should exist?” This repo starts with the gate because it can run safely from event metadata before broader access commands exist."}
+        {"The current gates are pull requests and issues. Access reconciliation can come later; this package starts with safe event gates because they can run before any untrusted pull request code is checked out or executed."}
       </Paragraph>
     </Section>
 
     <Section title="Quick start">
-      <CodeBlock lang="bash">{`cat > permissions.toml <<'TOML'
+      <CodeBlock lang="bash">{`shiv install permissions
+
+cat > permissions.toml <<'TOML'
 [gate.pull_request]
 default = "deny"
 allow = ["user:rikonor", "user:brownie-ricon"]
 message = "This repo only accepts pull requests from configured principals."
+
+[gate.issue]
+default = "deny"
+allow = ["user:rikonor", "user:brownie-ricon"]
+message = "This repo only accepts issues from configured principals."
 TOML
 
-# GitHub writes this shape to $GITHUB_EVENT_PATH in pull request workflows.
 cat > event.json <<'JSON'
-{"pull_request":{"user":{"login":"brownie-ricon"}}}
+{"pull_request":{"number":2,"user":{"login":"brownie-ricon"}}}
 JSON
 
-# This first PR is unreleased, so run the repo-local mise task directly:
-mise run gate:pull-request --config permissions.toml --event event.json
-mise run gate:pull-request --config permissions.toml --event event.json --json`}</CodeBlock>
+permissions gate pull-request --config permissions.toml --event event.json
+permissions gate pull-request --config permissions.toml --event event.json --json`}</CodeBlock>
     </Section>
 
-    <Section title="Gate behavior">
+    <Section title="GitHub Action">
       <Paragraph>
-        {"This first policy model supports only explicit GitHub users. Allow entries use the "}
-        <Code>user:&lt;login&gt;</Code>
-        {" form. Unknown users receive a deny verdict. Unsupported principal types such as teams are rejected as malformed policy so the gate cannot accidentally overclaim support."}
+        {"Use the root Action as a gate job inside workflows that should not continue for unauthorized event authors."}
+      </Paragraph>
+
+      <CodeBlock lang="yaml">{`jobs:
+  permissions:
+    runs-on: ubuntu-latest
+    steps:
+      # Read trusted base-branch policy, not pull request head policy.
+      - uses: actions/checkout@v6
+        with:
+          ref: \${{ github.event.pull_request.base.ref }}
+      - uses: KnickKnackLabs/permissions@v0.2.0
+        with:
+          gate: pull-request
+          config: permissions.toml
+          on-deny: fail
+
+  test:
+    needs: permissions
+    runs-on: ubuntu-latest
+    steps:
+      # The PR code is checked out only after the gate allows the author.
+      - uses: actions/checkout@v6
+      - run: mise run test`}</CodeBlock>
+
+      <Paragraph>
+        {"For enforcement workflows that should close denied events, use "}
+        <Code>on-deny: close</Code>
+        {" with write-capable workflow permissions. A denied event is closed and the Action still fails, leaving a visible audit signal."}
+      </Paragraph>
+    </Section>
+
+    <Section title="Policy model">
+      <Paragraph>
+        {"Each gate has a default posture plus explicit principal lists. "}
+        <Code>deny</Code>
+        {" entries win first, then "}
+        <Code>allow</Code>
+        {" entries, then the configured "}
+        <Code>default</Code>
+        {" fallback. This supports both fail-closed allowlists and fail-open deny lists."}
       </Paragraph>
 
       <CodeBlock lang="toml">{`[gate.pull_request]
@@ -136,7 +179,20 @@ allow = [
   "user:rikonor",
   "user:brownie-ricon",
 ]
-message = "This repo only accepts pull requests from configured principals."`}</CodeBlock>
+message = "This repo only accepts pull requests from configured principals."
+
+[gate.issue]
+default = "allow"
+deny = [
+  "user:spammy-mcspamface",
+]
+message = "This issue was closed by repository policy."`}</CodeBlock>
+
+      <Paragraph>
+        {"This release supports explicit GitHub users with "}
+        <Code>user:&lt;login&gt;</Code>
+        {" principals. Team expansion is intentionally not implemented yet; unsupported principal types fail as malformed policy instead of silently overclaiming support."}
+      </Paragraph>
 
       <Table>
         <TableHead>
@@ -147,28 +203,34 @@ message = "This repo only accepts pull requests from configured principals."`}</
         <TableRow>
           <Cell>Allowed author</Cell>
           <Cell><Code>0</Code></Cell>
-          <Cell>The author matched a configured <Code>user:&lt;login&gt;</Code> principal.</Cell>
+          <Cell>The author matched <Code>allow</Code> or the gate default is <Code>allow</Code>.</Cell>
         </TableRow>
         <TableRow>
           <Cell>Denied author</Cell>
           <Cell><Code>1</Code></Cell>
-          <Cell>The event was readable, but the author was outside the allowlist.</Cell>
+          <Cell>The author matched <Code>deny</Code> or missed the allowlist when the default is <Code>deny</Code>.</Cell>
         </TableRow>
         <TableRow>
           <Cell>Malformed input</Cell>
           <Cell><Code>2</Code></Cell>
-          <Cell>The config or event shape was invalid for this gate.</Cell>
+          <Cell>The config, gate name, event shape, or deny behavior is invalid.</Cell>
         </TableRow>
       </Table>
     </Section>
 
     <Section title="Workflow safety">
       <Paragraph>
-        {"The included "}
+        {"A permissions gate should read trusted base-repo policy and GitHub event metadata only. In pull request workflows, checkout the base branch before running this Action; otherwise an untrusted PR author could edit "}
+        <Code>permissions.toml</Code>
+        {" in their branch and allow themselves. If a pull request workflow uses "}
         <Code>pull_request_target</Code>
-        {" workflow runs the metadata gate only. It checks out the base branch version of this repository, reads GitHub's event JSON from "}
-        <Code>$GITHUB_EVENT_PATH</Code>
-        {", and leaves pull request head code untouched."}
+        {" so it can close denied PRs, it must not checkout or execute pull request head code."}
+      </Paragraph>
+
+      <Paragraph>
+        {"Separate GitHub workflow files run independently. If a test, build, or deploy workflow should be protected by the gate, put the permissions Action inside that workflow and make the sensitive jobs depend on it with "}
+        <Code>needs</Code>
+        {"."}
       </Paragraph>
     </Section>
 
@@ -195,7 +257,7 @@ git diff --check`}</CodeBlock>
       <Paragraph>
         {"The suite currently has "}
         <Bold>{`${testCount} tests`}</Bold>
-        {" across CLI integration and policy helper coverage. The count is read from the repo at README build time."}
+        {" across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time."}
       </Paragraph>
     </Section>
 

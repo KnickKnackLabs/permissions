@@ -2,13 +2,13 @@
 
 # permissions
 
-**Evaluate repository contribution policy before a pull request gets trusted.**
+**Evaluate repository contribution policy before public events get trusted.**
 
-A small gate first, broader access reconciliation later.
+Keep the repo public. Gate the event metadata before trusting the event.
 
-![gate: pull_request](https://img.shields.io/badge/gate-pull__request-7c3aed?style=flat)
-![shape: mise + BATS](https://img.shields.io/badge/shape-mise%20%2B%20BATS-4EAA25?style=flat&logo=gnubash&logoColor=white)
-[![tests: 19](https://img.shields.io/badge/tests-19-brightgreen?style=flat)](test/)
+![gates: pull_request + issue](https://img.shields.io/badge/gates-pull__request%20%2B%20issue-7c3aed?style=flat)
+![action: mise-backed](https://img.shields.io/badge/action-mise--backed-0ea5e9?style=flat)
+[![tests: 44](https://img.shields.io/badge/tests-44-brightgreen?style=flat)](test/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
 
 </div>
@@ -17,33 +17,68 @@ A small gate first, broader access reconciliation later.
 
 ## What this is
 
-`permissions` is a config-driven policy tool for repository stewardship. The first slice is a pull request gate: read GitHub event metadata, read `permissions.toml`, and exit with a verdict about the pull request author.
+`permissions` is a config-driven policy gate for public repositories that want open visibility but restricted participation. It reads GitHub event metadata, reads `permissions.toml`, and decides whether the event author is allowed for that gate.
 
-Contribution gates answer “may this event proceed?” Access reconciliation answers “what native forge permissions should exist?” This repo starts with the gate because it can run safely from event metadata before broader access commands exist.
+The current gates are pull requests and issues. Access reconciliation can come later; this package starts with safe event gates because they can run before any untrusted pull request code is checked out or executed.
 
 ## Quick start
 
 ```bash
+shiv install permissions
+
 cat > permissions.toml <<'TOML'
 [gate.pull_request]
 default = "deny"
 allow = ["user:rikonor", "user:brownie-ricon"]
 message = "This repo only accepts pull requests from configured principals."
+
+[gate.issue]
+default = "deny"
+allow = ["user:rikonor", "user:brownie-ricon"]
+message = "This repo only accepts issues from configured principals."
 TOML
 
-# GitHub writes this shape to $GITHUB_EVENT_PATH in pull request workflows.
 cat > event.json <<'JSON'
-{"pull_request":{"user":{"login":"brownie-ricon"}}}
+{"pull_request":{"number":2,"user":{"login":"brownie-ricon"}}}
 JSON
 
-# This first PR is unreleased, so run the repo-local mise task directly:
-mise run gate:pull-request --config permissions.toml --event event.json
-mise run gate:pull-request --config permissions.toml --event event.json --json
+permissions gate pull-request --config permissions.toml --event event.json
+permissions gate pull-request --config permissions.toml --event event.json --json
 ```
 
-## Gate behavior
+## GitHub Action
 
-This first policy model supports only explicit GitHub users. Allow entries use the `user:<login>` form. Unknown users receive a deny verdict. Unsupported principal types such as teams are rejected as malformed policy so the gate cannot accidentally overclaim support.
+Use the root Action as a gate job inside workflows that should not continue for unauthorized event authors.
+
+```yaml
+jobs:
+  permissions:
+    runs-on: ubuntu-latest
+    steps:
+      # Read trusted base-branch policy, not pull request head policy.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+      - uses: KnickKnackLabs/permissions@v0.2.0
+        with:
+          gate: pull-request
+          config: permissions.toml
+          on-deny: fail
+
+  test:
+    needs: permissions
+    runs-on: ubuntu-latest
+    steps:
+      # The PR code is checked out only after the gate allows the author.
+      - uses: actions/checkout@v6
+      - run: mise run test
+```
+
+For enforcement workflows that should close denied events, use `on-deny: close` with write-capable workflow permissions. A denied event is closed and the Action still fails, leaving a visible audit signal.
+
+## Policy model
+
+Each gate has a default posture plus explicit principal lists. `deny` entries win first, then `allow` entries, then the configured `default` fallback. This supports both fail-closed allowlists and fail-open deny lists.
 
 ```toml
 [gate.pull_request]
@@ -53,17 +88,28 @@ allow = [
   "user:brownie-ricon",
 ]
 message = "This repo only accepts pull requests from configured principals."
+
+[gate.issue]
+default = "allow"
+deny = [
+  "user:spammy-mcspamface",
+]
+message = "This issue was closed by repository policy."
 ```
 
-| Case            | Exit | Meaning                                                           |
-| --------------- | ---- | ----------------------------------------------------------------- |
-| Allowed author  | `0`  | The author matched a configured `user:<login>` principal.         |
-| Denied author   | `1`  | The event was readable, but the author was outside the allowlist. |
-| Malformed input | `2`  | The config or event shape was invalid for this gate.              |
+This release supports explicit GitHub users with `user:<login>` principals. Team expansion is intentionally not implemented yet; unsupported principal types fail as malformed policy instead of silently overclaiming support.
+
+| Case            | Exit | Meaning                                                                       |
+| --------------- | ---- | ----------------------------------------------------------------------------- |
+| Allowed author  | `0`  | The author matched `allow` or the gate default is `allow`.                    |
+| Denied author   | `1`  | The author matched `deny` or missed the allowlist when the default is `deny`. |
+| Malformed input | `2`  | The config, gate name, event shape, or deny behavior is invalid.              |
 
 ## Workflow safety
 
-The included `pull_request_target` workflow runs the metadata gate only. It checks out the base branch version of this repository, reads GitHub's event JSON from `$GITHUB_EVENT_PATH`, and leaves pull request head code untouched.
+A permissions gate should read trusted base-repo policy and GitHub event metadata only. In pull request workflows, checkout the base branch before running this Action; otherwise an untrusted PR author could edit `permissions.toml` in their branch and allow themselves. If a pull request workflow uses `pull_request_target` so it can close denied PRs, it must not checkout or execute pull request head code.
+
+Separate GitHub workflow files run independently. If a test, build, or deploy workflow should be protected by the gate, put the permissions Action inside that workflow and make the sensitive jobs depend on it with `needs`.
 
 ## Local development
 
@@ -86,7 +132,7 @@ readme build --check
 git diff --check
 ```
 
-The suite currently has **19 tests** across CLI integration and policy helper coverage. The count is read from the repo at README build time.
+The suite currently has **44 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
 
 <div align="center">
 

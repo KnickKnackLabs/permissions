@@ -15,11 +15,14 @@ sys.path.insert(0, str(REPO_DIR / "lib"))
 from permissions import (  # noqa: E402
     GateError,
     Verdict,
+    evaluate_gate,
+    evaluate_issue,
     evaluate_pull_request,
     format_human_verdict,
     format_json_payload,
     load_config,
     load_event,
+    normalize_gate,
     resolve_path,
 )
 
@@ -64,6 +67,29 @@ class LoadingTest(unittest.TestCase):
         self.assertEqual(raised.exception.exit_code, 2)
 
 
+class GateSelectionTest(unittest.TestCase):
+    def test_normalize_gate_accepts_supported_gate_names(self) -> None:
+        self.assertEqual(normalize_gate("pull_request"), "pull-request")
+        self.assertEqual(normalize_gate("pull-request"), "pull-request")
+        self.assertEqual(normalize_gate("issue"), "issue")
+
+    def test_normalize_gate_rejects_unknown_gate_names(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            normalize_gate("issue-comment")
+
+        self.assertEqual(raised.exception.field, "gate")
+
+    def test_evaluate_gate_dispatches_to_issue_gate(self) -> None:
+        verdict = evaluate_gate(
+            "issue",
+            {"gate": {"issue": {"default": "deny", "allow": ["user:rikonor"]}}},
+            {"issue": {"number": 1, "user": {"login": "rikonor"}}},
+        )
+
+        self.assertTrue(verdict.allowed)
+        self.assertEqual(verdict.gate, "issue")
+
+
 class PullRequestEvaluationTest(unittest.TestCase):
     def test_allowed_user_returns_allowed_verdict(self) -> None:
         verdict = evaluate_pull_request(
@@ -76,7 +102,7 @@ class PullRequestEvaluationTest(unittest.TestCase):
                     }
                 }
             },
-            {"pull_request": {"user": {"login": "brownie-ricon"}}},
+            {"pull_request": {"number": 2, "user": {"login": "brownie-ricon"}}},
         )
 
         self.assertEqual(
@@ -86,6 +112,7 @@ class PullRequestEvaluationTest(unittest.TestCase):
                 actor="user:brownie-ricon",
                 login="brownie-ricon",
                 reason="matched allow entry user:brownie-ricon",
+                gate="pull-request",
                 message="configured principals only",
             ),
         )
@@ -94,11 +121,12 @@ class PullRequestEvaluationTest(unittest.TestCase):
     def test_denied_user_returns_denied_verdict(self) -> None:
         verdict = evaluate_pull_request(
             {"gate": {"pull_request": {"default": "deny", "allow": ["user:rikonor"]}}},
-            {"pull_request": {"user": {"login": "stranger"}}},
+            {"pull_request": {"number": 3, "user": {"login": "stranger"}}},
         )
 
         self.assertFalse(verdict.allowed)
         self.assertEqual(verdict.actor, "user:stranger")
+        self.assertEqual(verdict.gate, "pull-request")
         self.assertEqual(verdict.exit_code, 1)
 
     def test_missing_policy_raises_gate_error(self) -> None:
@@ -107,12 +135,37 @@ class PullRequestEvaluationTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.field, "gate.pull_request")
 
-    def test_non_deny_default_is_rejected_for_first_slice(self) -> None:
+    def test_default_allow_permits_unlisted_users(self) -> None:
+        verdict = evaluate_pull_request(
+            {"gate": {"pull_request": {"default": "allow", "deny": []}}},
+            {"pull_request": {"number": 3, "user": {"login": "stranger"}}},
+        )
+
+        self.assertTrue(verdict.allowed)
+        self.assertEqual(verdict.reason, "gate.pull_request.default is allow")
+
+    def test_explicit_deny_overrides_default_allow(self) -> None:
+        verdict = evaluate_pull_request(
+            {
+                "gate": {
+                    "pull_request": {
+                        "default": "allow",
+                        "deny": ["user:stranger"],
+                    }
+                }
+            },
+            {"pull_request": {"number": 3, "user": {"login": "stranger"}}},
+        )
+
+        self.assertFalse(verdict.allowed)
+        self.assertEqual(verdict.reason, "matched deny entry user:stranger")
+
+    def test_invalid_default_is_rejected(self) -> None:
         with self.assertRaises(GateError) as raised:
             evaluate_pull_request(
                 {
                     "gate": {
-                        "pull_request": {"default": "allow", "allow": ["user:rikonor"]}
+                        "pull_request": {"default": "maybe", "allow": ["user:rikonor"]}
                     }
                 },
                 {"pull_request": {"user": {"login": "rikonor"}}},
@@ -135,7 +188,25 @@ class PullRequestEvaluationTest(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.field, "gate.pull_request.allow")
+        self.assertIn("unsupported principals in allow list", raised.exception.message)
         self.assertIn("team:KnickKnackLabs/agents", raised.exception.message)
+
+    def test_unsupported_deny_principal_types_are_rejected(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            evaluate_pull_request(
+                {
+                    "gate": {
+                        "pull_request": {
+                            "default": "allow",
+                            "deny": ["team:KnickKnackLabs/blocked"],
+                        }
+                    }
+                },
+                {"pull_request": {"user": {"login": "brownie-ricon"}}},
+            )
+
+        self.assertEqual(raised.exception.field, "gate.pull_request.deny")
+        self.assertIn("unsupported principals in deny list", raised.exception.message)
 
     def test_missing_login_is_rejected(self) -> None:
         with self.assertRaises(GateError) as raised:
@@ -151,6 +222,77 @@ class PullRequestEvaluationTest(unittest.TestCase):
         self.assertEqual(raised.exception.field, "pull_request.user.login")
 
 
+class IssueEvaluationTest(unittest.TestCase):
+    def test_allowed_issue_author_returns_allowed_verdict(self) -> None:
+        verdict = evaluate_issue(
+            {
+                "gate": {
+                    "issue": {
+                        "default": "deny",
+                        "allow": ["user:rikonor"],
+                        "message": "configured issue authors only",
+                    }
+                }
+            },
+            {"issue": {"number": 7, "user": {"login": "rikonor"}}},
+        )
+
+        self.assertEqual(
+            verdict,
+            Verdict(
+                allowed=True,
+                actor="user:rikonor",
+                login="rikonor",
+                reason="matched allow entry user:rikonor",
+                gate="issue",
+                message="configured issue authors only",
+            ),
+        )
+
+    def test_denied_issue_author_returns_denied_verdict(self) -> None:
+        verdict = evaluate_issue(
+            {"gate": {"issue": {"default": "deny", "allow": ["user:rikonor"]}}},
+            {"issue": {"number": 8, "user": {"login": "stranger"}}},
+        )
+
+        self.assertFalse(verdict.allowed)
+        self.assertEqual(verdict.actor, "user:stranger")
+        self.assertEqual(verdict.reason, "user:stranger is not in gate.issue.allow")
+        self.assertEqual(verdict.exit_code, 1)
+
+    def test_issue_gate_rejects_pull_request_conversation_events(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            evaluate_issue(
+                {"gate": {"issue": {"default": "deny", "allow": ["user:rikonor"]}}},
+                {
+                    "issue": {
+                        "number": 9,
+                        "pull_request": {
+                            "url": "https://api.github.com/repos/o/r/pulls/9"
+                        },
+                        "user": {"login": "rikonor"},
+                    }
+                },
+            )
+
+        self.assertEqual(raised.exception.field, "issue.pull_request")
+
+    def test_missing_issue_policy_raises_gate_error(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            evaluate_issue({}, {"issue": {"user": {"login": "rikonor"}}})
+
+        self.assertEqual(raised.exception.field, "gate.issue")
+
+    def test_missing_issue_login_is_rejected(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            evaluate_issue(
+                {"gate": {"issue": {"default": "deny", "allow": ["user:rikonor"]}}},
+                {"issue": {"user": {}}},
+            )
+
+        self.assertEqual(raised.exception.field, "issue.user.login")
+
+
 class FormattingTest(unittest.TestCase):
     def test_human_verdict_includes_status_actor_reason_and_message(self) -> None:
         verdict = Verdict(
@@ -158,6 +300,7 @@ class FormattingTest(unittest.TestCase):
             actor="user:stranger",
             login="stranger",
             reason="user:stranger is not in gate.pull_request.allow",
+            gate="pull-request",
             message="configured principals only",
         )
 
@@ -166,6 +309,21 @@ class FormattingTest(unittest.TestCase):
             "✗ denied: pull request author user:stranger "
             "(user:stranger is not in gate.pull_request.allow)\n"
             "configured principals only",
+        )
+
+    def test_issue_human_verdict_names_issue_author(self) -> None:
+        verdict = Verdict(
+            allowed=False,
+            actor="user:stranger",
+            login="stranger",
+            reason="user:stranger is not in gate.issue.allow",
+            gate="issue",
+        )
+
+        self.assertEqual(
+            format_human_verdict(verdict),
+            "✗ denied: issue author user:stranger "
+            "(user:stranger is not in gate.issue.allow)",
         )
 
     def test_json_payload_is_stable_and_machine_readable(self) -> None:
