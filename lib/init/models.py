@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +13,10 @@ from permissions import GateError
 SUPPORTED_GATES = ("issue", "pull-request")
 DEFAULT_ACTION_REF = "v0.5.0"
 DEFAULT_MEMBERSHIP_SECRET = "PERMISSIONS_MEMBERSHIP_TOKEN"
+GITHUB_LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
+TEAM_SLUG_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
+ACTION_REF_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+SECRET_NAME_PATTERN = re.compile(r"^[A-Z0-9_]+$")
 
 
 @dataclass(frozen=True)
@@ -124,12 +129,18 @@ def validate_options(options: InitOptions) -> InitOptions:
     if on_deny not in {"fail", "close"}:
         raise GateError('on-deny must be "fail" or "close"')
 
+    action_ref = options.action_ref or DEFAULT_ACTION_REF
+    validate_action_ref(action_ref)
+    membership_token_secret = options.membership_token_secret
+    if membership_token_secret:
+        validate_membership_token_secret(membership_token_secret)
+
     return InitOptions(
         gates=gates,
         allow=allow,
         on_deny=on_deny,
-        action_ref=options.action_ref or DEFAULT_ACTION_REF,
-        membership_token_secret=options.membership_token_secret,
+        action_ref=action_ref,
+        membership_token_secret=membership_token_secret,
         write=options.write,
         force=options.force,
         allow_default_membership_token=options.allow_default_membership_token,
@@ -146,16 +157,46 @@ def normalize_gate(gate: str) -> str:
 
 def validate_principal(principal: str) -> None:
     """Validate init-supported principal syntax."""
-    if principal.startswith("user:") and principal.removeprefix("user:"):
-        return
+    if principal.startswith("user:"):
+        login = principal.removeprefix("user:")
+        if GITHUB_LOGIN_PATTERN.fullmatch(login):
+            return
     if principal.startswith("team:"):
         rest = principal.removeprefix("team:")
         org, sep, slug = rest.partition("/")
-        if org and sep and slug:
+        if (
+            org
+            and sep
+            and slug
+            and GITHUB_LOGIN_PATTERN.fullmatch(org)
+            and TEAM_SLUG_PATTERN.fullmatch(slug)
+        ):
             return
     raise GateError(
         f"unsupported principal {principal!r}; use user:<login> or team:<org>/<slug>"
     )
+
+
+def validate_action_ref(action_ref: str) -> None:
+    """Validate a generated GitHub Action ref."""
+    if (
+        not ACTION_REF_PATTERN.fullmatch(action_ref)
+        or "//" in action_ref
+        or ".." in action_ref
+    ):
+        raise GateError(
+            "action-ref must be a simple GitHub ref using letters, numbers, '.', "
+            "'_', '-', or '/'"
+        )
+
+
+def validate_membership_token_secret(secret_name: str) -> None:
+    """Validate a generated GitHub Actions secret name."""
+    if not SECRET_NAME_PATTERN.fullmatch(secret_name):
+        raise GateError(
+            "membership-token-secret must use only uppercase letters, numbers, "
+            "and underscores"
+        )
 
 
 def has_team_principals(principals: tuple[str, ...]) -> bool:

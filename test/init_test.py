@@ -44,6 +44,44 @@ class InitOptionsTest(unittest.TestCase):
 
         self.assertIn("unsupported principal", raised.exception.message)
 
+    def test_validate_options_rejects_principal_injection(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            validate_options(
+                InitOptions(
+                    gates=("issue",),
+                    allow=('user:rikonor"\nmalicious = true',),
+                    on_deny="close",
+                )
+            )
+
+        self.assertIn("unsupported principal", raised.exception.message)
+
+    def test_validate_options_rejects_action_ref_injection(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            validate_options(
+                InitOptions(
+                    gates=("issue",),
+                    allow=("user:rikonor",),
+                    on_deny="fail",
+                    action_ref="v0.5.0\n        env:\n          PWN: x",
+                )
+            )
+
+        self.assertIn("action-ref", raised.exception.message)
+
+    def test_validate_options_rejects_invalid_membership_secret_names(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            validate_options(
+                InitOptions(
+                    gates=("issue",),
+                    allow=("team:KnickKnackLabs/agents",),
+                    on_deny="fail",
+                    membership_token_secret="permissions-token",
+                )
+            )
+
+        self.assertIn("membership-token-secret", raised.exception.message)
+
 
 class InitRenderTest(unittest.TestCase):
     def test_build_plan_renders_team_workflows_with_membership_secret(self) -> None:
@@ -168,6 +206,31 @@ class InitRenderTest(unittest.TestCase):
             self.assertTrue(
                 (root / ".github/workflows/permissions-issue-gate.yml").exists()
             )
+
+    def test_apply_plan_preflights_overwrites_before_writing_any_file(self) -> None:
+        plan = build_plan(
+            validate_options(
+                InitOptions(
+                    gates=("issue",),
+                    allow=("user:rikonor",),
+                    on_deny="fail",
+                    write=True,
+                )
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow = root / ".github/workflows/permissions-issue-gate.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("old\n", encoding="utf-8")
+
+            with self.assertRaises(GateError) as raised:
+                apply_plan(plan, root)
+
+            self.assertIn("refusing to overwrite", raised.exception.message)
+            self.assertFalse((root / "permissions.toml").exists())
+            self.assertEqual(workflow.read_text(encoding="utf-8"), "old\n")
 
 
 if __name__ == "__main__":

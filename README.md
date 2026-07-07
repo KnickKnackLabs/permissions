@@ -8,7 +8,7 @@ Keep the repo public. Gate the event metadata before trusting the event.
 
 ![gates: pull_request + issue](https://img.shields.io/badge/gates-pull__request%20%2B%20issue-7c3aed?style=flat)
 ![action: mise-backed](https://img.shields.io/badge/action-mise--backed-0ea5e9?style=flat)
-[![tests: 75](https://img.shields.io/badge/tests-75-brightgreen?style=flat)](test/)
+[![tests: 81](https://img.shields.io/badge/tests-81-brightgreen?style=flat)](test/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
 
 </div>
@@ -148,7 +148,7 @@ readme build --check
 git diff --check
 ```
 
-The suite currently has **75 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
+The suite currently has **81 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
 
 <div align="center">
 

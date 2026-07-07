@@ -177,12 +177,14 @@ def apply_plan(plan: InitPlan, root: Path) -> None:
                 "only if you intentionally accept fail-closed default-token behavior"
             )
 
+    updates = tuple(file.path for file in plan.files if file.status(root) == "update")
+    if updates and not plan.options.force:
+        first = updates[0]
+        raise GateError(
+            f"refusing to overwrite {first}; rerun with --force or edit manually"
+        )
+
     for file in plan.files:
-        status = file.status(root)
-        if status == "update" and not plan.options.force:
-            raise GateError(
-                f"refusing to overwrite {file.path}; rerun with --force or edit manually"
-            )
         full_path = root / file.path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(file.content, encoding="utf-8")

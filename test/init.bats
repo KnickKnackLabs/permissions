@@ -68,6 +68,33 @@ TOML
   [[ "$output" == *"refusing to overwrite permissions.toml"* ]]
 }
 
+@test "init refuses overwrites before writing any files" {
+  mkdir -p "$WORK_DIR/.github/workflows"
+  printf 'old\n' > "$WORK_DIR/.github/workflows/permissions-issue-gate.yml"
+
+  run permissions init \
+    --gate issue \
+    --allow user:rikonor \
+    --on-deny fail \
+    --write
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"refusing to overwrite .github/workflows/permissions-issue-gate.yml"* ]]
+  [ ! -e "$WORK_DIR/permissions.toml" ]
+  [ "$(cat "$WORK_DIR/.github/workflows/permissions-issue-gate.yml")" = "old" ]
+}
+
+@test "init rejects generated-file interpolation inputs" {
+  run permissions init \
+    --gate issue \
+    --allow user:rikonor \
+    --on-deny fail \
+    --action-ref $'v0.5.0\n        env:\n          PWN: x'
+
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"action-ref"* ]]
+}
+
 @test "init requires a membership secret before writing team workflows" {
   run permissions init \
     --gate issue \
