@@ -19,7 +19,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
 
       - name: Evaluate issue author
-        uses: KnickKnackLabs/permissions@v0.2.0
+        uses: KnickKnackLabs/permissions@v0.3.0
         with:
           gate: issue
           on-deny: close

@@ -17,9 +17,10 @@ from pathlib import Path
 sys.path.insert(0, os.environ["MISE_CONFIG_ROOT"] + "/lib")
 
 from action import (  # noqa: E402
-    close_denied,
+    apply_denied_side_effects,
     evaluate_from_paths,
     outputs_for_verdict,
+    parse_bool_input,
     validate_on_deny,
     write_outputs,
 )
@@ -30,9 +31,13 @@ def main() -> int:
     """Run the GitHub Action from its environment contract."""
     output_path = os.environ.get("GITHUB_OUTPUT")
     on_deny = os.environ.get("INPUT_ON_DENY", "fail")
+    deny_label = os.environ.get("INPUT_DENY_LABEL", "permissions-denied")
 
     try:
         validate_on_deny(on_deny)
+        deny_comment = parse_bool_input(
+            os.environ.get("INPUT_DENY_COMMENT", "true"), name="deny-comment"
+        )
     except GateError as exc:
         write_outputs(output_path, {"allowed": "false"})
         print(f"Error: {exc.message}", file=sys.stderr)
@@ -68,18 +73,21 @@ def main() -> int:
         return verdict.exit_code
 
     try:
-        close_denied(
+        notes = apply_denied_side_effects(
             verdict=verdict,
             event=event_payload,
             repository=os.environ.get("GITHUB_REPOSITORY", ""),
             token=os.environ.get("GITHUB_TOKEN", ""),
             api_url=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+            label=deny_label,
+            comment=deny_comment,
         )
     except GateError as exc:
         print(f"Error: {exc.message}", file=sys.stderr)
         return exc.exit_code
 
-    print(f"Closed denied {verdict.gate} from {verdict.actor}.")
+    for note in notes:
+        print(note)
     return verdict.exit_code
 
 

@@ -22,6 +22,14 @@ inputs:
     description: GitHub token used when on-deny is close.
     required: false
     default: ""
+  deny-label:
+    description: Label to apply when on-deny is close. Set to an empty string to skip labeling.
+    required: false
+    default: permissions-denied
+  deny-comment:
+    description: Whether to comment with the deny reason when on-deny is close.
+    required: false
+    default: "true"
 
 outputs:
   actor:
@@ -56,5 +64,7 @@ runs:
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_EVENT: ${{ inputs.event }}
         INPUT_ON_DENY: ${{ inputs.on-deny }}
+        INPUT_DENY_LABEL: ${{ inputs.deny-label }}
+        INPUT_DENY_COMMENT: ${{ inputs.deny-comment }}
         GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
       run: mise -C "$ACTION_PATH" run action
