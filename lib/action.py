@@ -194,16 +194,25 @@ def create_comment(
 
 def deny_comment_body(verdict: Verdict) -> str:
     """Return the default comment body for a denied event."""
-    subject = "pull request" if verdict.gate == "pull-request" else verdict.gate
-    lines = [
-        f"This {subject} was closed by repository permissions policy.",
-        "",
-        f"Denied principal: `{verdict.actor}`",
-        f"Reason: {verdict.reason}",
-    ]
-    if verdict.message:
-        lines.extend(["", verdict.message])
-    return "\n".join(lines)
+    if verdict.gate == "pull-request":
+        subject = "pull request"
+        policy = "gate.pull_request"
+        opener = "Thanks for the contribution."
+    else:
+        subject = "issue"
+        policy = "gate.issue"
+        opener = "Thanks for opening this."
+
+    return "\n\n".join(
+        [
+            f"{opener} This repository uses "
+            "[permissions](https://github.com/KnickKnackLabs/permissions) "
+            f"to limit who can open {subject}s.",
+            f"@{verdict.login} is not currently allowed by this repository's "
+            f"`{policy}` policy, so this {subject} was closed automatically.",
+            "If you think this is a mistake, please contact a maintainer.",
+        ]
+    )
 
 
 def event_number(verdict: Verdict, event: dict[str, Any]) -> int:
