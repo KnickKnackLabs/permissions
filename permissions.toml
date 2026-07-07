@@ -3,6 +3,7 @@ default = "deny"
 allow = [
   "user:rikonor",
   "user:brownie-ricon",
+  "team:KnickKnackLabs/agents",
 ]
 message = "This repo only accepts pull requests from configured principals."
 
@@ -11,5 +12,6 @@ default = "deny"
 allow = [
   "user:rikonor",
   "user:brownie-ricon",
+  "team:KnickKnackLabs/agents",
 ]
 message = "This repo only accepts issues from configured principals."
