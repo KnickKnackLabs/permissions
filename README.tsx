@@ -141,10 +141,9 @@ permissions gate pull-request --config permissions.toml --event event.json --jso
       - uses: actions/checkout@v6
         with:
           ref: \${{ github.event.pull_request.base.ref }}
-      - uses: KnickKnackLabs/permissions@v0.2.0
+      - uses: KnickKnackLabs/permissions@v0.3.0
         with:
           gate: pull-request
-          config: permissions.toml
           on-deny: fail
 
   test:
@@ -158,7 +157,9 @@ permissions gate pull-request --config permissions.toml --event event.json --jso
       <Paragraph>
         {"For enforcement workflows that should close denied events, use "}
         <Code>on-deny: close</Code>
-        {" with write-capable workflow permissions. A denied event is closed and the Action still fails, leaving a visible audit signal."}
+        {" with write-capable workflow permissions. A denied event is labeled "}
+        <Code>permissions-denied</Code>
+        {", receives an explanatory comment, is closed, and the Action still fails, leaving a visible audit signal. Denied issues are closed as not planned; denied pull requests are closed normally because GitHub does not provide PR close reasons."}
       </Paragraph>
     </Section>
 
@@ -225,6 +226,16 @@ message = "This issue was closed by repository policy."`}</CodeBlock>
         {" in their branch and allow themselves. If a pull request workflow uses "}
         <Code>pull_request_target</Code>
         {" so it can close denied PRs, it must not checkout or execute pull request head code."}
+      </Paragraph>
+
+      <Paragraph>
+        {"When "}
+        <Code>on-deny: close</Code>
+        {" is used for pull requests, grant both "}
+        <Code>pull-requests: write</Code>
+        {" and "}
+        <Code>issues: write</Code>
+        {" so the Action can close the PR, apply labels, and comment on the PR conversation."}
       </Paragraph>
 
       <Paragraph>

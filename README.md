@@ -8,7 +8,7 @@ Keep the repo public. Gate the event metadata before trusting the event.
 
 ![gates: pull_request + issue](https://img.shields.io/badge/gates-pull__request%20%2B%20issue-7c3aed?style=flat)
 ![action: mise-backed](https://img.shields.io/badge/action-mise--backed-0ea5e9?style=flat)
-[![tests: 44](https://img.shields.io/badge/tests-44-brightgreen?style=flat)](test/)
+[![tests: 48](https://img.shields.io/badge/tests-48-brightgreen?style=flat)](test/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
 
 </div>
@@ -59,10 +59,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.base.ref }}
-      - uses: KnickKnackLabs/permissions@v0.2.0
+      - uses: KnickKnackLabs/permissions@v0.3.0
         with:
           gate: pull-request
-          config: permissions.toml
           on-deny: fail
 
   test:
@@ -74,7 +73,7 @@ jobs:
       - run: mise run test
 ```
 
-For enforcement workflows that should close denied events, use `on-deny: close` with write-capable workflow permissions. A denied event is closed and the Action still fails, leaving a visible audit signal.
+For enforcement workflows that should close denied events, use `on-deny: close` with write-capable workflow permissions. A denied event is labeled `permissions-denied`, receives an explanatory comment, is closed, and the Action still fails, leaving a visible audit signal. Denied issues are closed as not planned; denied pull requests are closed normally because GitHub does not provide PR close reasons.
 
 ## Policy model
 
@@ -109,6 +108,8 @@ This release supports explicit GitHub users with `user:<login>` principals. Team
 
 A permissions gate should read trusted base-repo policy and GitHub event metadata only. In pull request workflows, checkout the base branch before running this Action; otherwise an untrusted PR author could edit `permissions.toml` in their branch and allow themselves. If a pull request workflow uses `pull_request_target` so it can close denied PRs, it must not checkout or execute pull request head code.
 
+When `on-deny: close` is used for pull requests, grant both `pull-requests: write` and `issues: write` so the Action can close the PR, apply labels, and comment on the PR conversation.
+
 Separate GitHub workflow files run independently. If a test, build, or deploy workflow should be protected by the gate, put the permissions Action inside that workflow and make the sensitive jobs depend on it with `needs`.
 
 ## Local development
@@ -132,7 +133,7 @@ readme build --check
 git diff --check
 ```
 
-The suite currently has **44 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
+The suite currently has **48 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
 
 <div align="center">
 

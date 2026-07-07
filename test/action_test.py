@@ -47,6 +47,16 @@ class ActionHelperTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.field, "on-deny")
 
+    def test_parse_bool_input_accepts_true_and_false(self) -> None:
+        self.assertTrue(permissions_action.parse_bool_input("true", name="flag"))
+        self.assertFalse(permissions_action.parse_bool_input("FALSE", name="flag"))
+
+    def test_parse_bool_input_rejects_other_values(self) -> None:
+        with self.assertRaises(GateError) as raised:
+            permissions_action.parse_bool_input("yes", name="deny-comment")
+
+        self.assertEqual(raised.exception.field, "deny-comment")
+
     def test_outputs_for_verdict_formats_action_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -71,7 +81,7 @@ class ActionHelperTest(unittest.TestCase):
         self.assertEqual(outputs["actor"], "user:rikonor")
         self.assertEqual(outputs["gate"], "issue")
 
-    def test_close_denied_closes_denied_issue(self) -> None:
+    def test_close_denied_closes_denied_issue_as_not_planned(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
             (workspace / "permissions.toml").write_text(
@@ -87,10 +97,10 @@ class ActionHelperTest(unittest.TestCase):
                 workspace=workspace,
             )
 
-            calls: list[tuple[str, str, str, dict[str, str]]] = []
+            calls: list[tuple[str, str, str, dict[str, object]]] = []
 
             def fake_request_json(
-                method: str, url: str, token: str, payload: dict[str, str]
+                method: str, url: str, token: str, payload: dict[str, object]
             ) -> None:
                 calls.append((method, url, token, payload))
 
@@ -112,7 +122,7 @@ class ActionHelperTest(unittest.TestCase):
                     "PATCH",
                     "https://api.github.test/repos/KnickKnackLabs/permissions/issues/7",
                     "token",
-                    {"state": "closed"},
+                    {"state": "closed", "state_reason": "not_planned"},
                 )
             ],
         )
@@ -133,10 +143,10 @@ class ActionHelperTest(unittest.TestCase):
                 workspace=workspace,
             )
 
-            calls: list[tuple[str, str, str, dict[str, str]]] = []
+            calls: list[tuple[str, str, str, dict[str, object]]] = []
 
             def fake_request_json(
-                method: str, url: str, token: str, payload: dict[str, str]
+                method: str, url: str, token: str, payload: dict[str, object]
             ) -> None:
                 calls.append((method, url, token, payload))
 
@@ -152,9 +162,112 @@ class ActionHelperTest(unittest.TestCase):
                 )
 
         self.assertEqual(
-            calls[0][1],
-            "https://api.github.test/repos/KnickKnackLabs/permissions/pulls/3",
+            calls,
+            [
+                (
+                    "PATCH",
+                    "https://api.github.test/repos/KnickKnackLabs/permissions/pulls/3",
+                    "token",
+                    {"state": "closed"},
+                )
+            ],
         )
+
+    def test_apply_denied_side_effects_labels_comments_and_closes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            (workspace / "permissions.toml").write_text(
+                '[gate.issue]\ndefault = "deny"\nallow = ["user:rikonor"]\n'
+                'message = "configured principals only"\n',
+                encoding="utf-8",
+            )
+            event = {"issue": {"number": 7, "user": {"login": "stranger"}}}
+            (workspace / "event.json").write_text(json.dumps(event), encoding="utf-8")
+            verdict, event_payload = permissions_action.evaluate_from_paths(
+                gate="issue",
+                config="permissions.toml",
+                event="event.json",
+                workspace=workspace,
+            )
+
+            calls: list[tuple[str, str, str, dict[str, object]]] = []
+
+            def fake_request_json(
+                method: str, url: str, token: str, payload: dict[str, object]
+            ) -> None:
+                calls.append((method, url, token, payload))
+
+            with mock.patch.object(
+                permissions_action, "request_json", side_effect=fake_request_json
+            ):
+                notes = permissions_action.apply_denied_side_effects(
+                    verdict=verdict,
+                    event=event_payload,
+                    repository="KnickKnackLabs/permissions",
+                    token="token",
+                    api_url="https://api.github.test",
+                    label="permissions-denied",
+                    comment=True,
+                )
+
+        self.assertEqual(
+            [call[1] for call in calls],
+            [
+                "https://api.github.test/repos/KnickKnackLabs/permissions/labels",
+                "https://api.github.test/repos/KnickKnackLabs/permissions/issues/7/labels",
+                "https://api.github.test/repos/KnickKnackLabs/permissions/issues/7/comments",
+                "https://api.github.test/repos/KnickKnackLabs/permissions/issues/7",
+            ],
+        )
+        self.assertEqual(calls[1][3], {"labels": ["permissions-denied"]})
+        self.assertIn("Denied principal: `user:stranger`", str(calls[2][3]["body"]))
+        self.assertEqual(
+            notes,
+            [
+                "Labeled denied issue with permissions-denied.",
+                "Commented on denied issue.",
+                "Closed denied issue from user:stranger.",
+            ],
+        )
+
+    def test_apply_denied_side_effects_can_skip_label_and_comment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            (workspace / "permissions.toml").write_text(
+                '[gate.issue]\ndefault = "deny"\nallow = ["user:rikonor"]\n',
+                encoding="utf-8",
+            )
+            event = {"issue": {"number": 7, "user": {"login": "stranger"}}}
+            (workspace / "event.json").write_text(json.dumps(event), encoding="utf-8")
+            verdict, event_payload = permissions_action.evaluate_from_paths(
+                gate="issue",
+                config="permissions.toml",
+                event="event.json",
+                workspace=workspace,
+            )
+
+            calls: list[tuple[str, str, str, dict[str, object]]] = []
+
+            def fake_request_json(
+                method: str, url: str, token: str, payload: dict[str, object]
+            ) -> None:
+                calls.append((method, url, token, payload))
+
+            with mock.patch.object(
+                permissions_action, "request_json", side_effect=fake_request_json
+            ):
+                notes = permissions_action.apply_denied_side_effects(
+                    verdict=verdict,
+                    event=event_payload,
+                    repository="KnickKnackLabs/permissions",
+                    token="token",
+                    api_url="https://api.github.test",
+                    label="",
+                    comment=False,
+                )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(notes, ["Closed denied issue from user:stranger."])
 
 
 if __name__ == "__main__":

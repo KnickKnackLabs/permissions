@@ -17,6 +17,8 @@ from permissions import (
     resolve_path,
 )
 
+DEFAULT_DENY_LABEL = "permissions-denied"
+
 
 def evaluate_from_paths(
     *, gate: str, config: str, event: str, workspace: Path
@@ -37,6 +39,16 @@ def validate_on_deny(on_deny: str) -> None:
         raise GateError('on-deny must be "fail" or "close"', field="on-deny")
 
 
+def parse_bool_input(value: str, *, name: str) -> bool:
+    """Parse a GitHub Action boolean-like string input."""
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise GateError(f'{name} must be "true" or "false"', field=name)
+
+
 def outputs_for_verdict(verdict: Verdict) -> dict[str, str]:
     """Return GitHub Action outputs for a verdict."""
     return {
@@ -46,6 +58,63 @@ def outputs_for_verdict(verdict: Verdict) -> dict[str, str]:
         "login": verdict.login,
         "reason": verdict.reason,
     }
+
+
+def apply_denied_side_effects(
+    *,
+    verdict: Verdict,
+    event: dict[str, Any],
+    repository: str,
+    token: str,
+    api_url: str = "https://api.github.com",
+    label: str = DEFAULT_DENY_LABEL,
+    comment: bool = True,
+) -> list[str]:
+    """Apply configured side effects for a denied event and return action notes."""
+    if not repository or "/" not in repository:
+        raise GateError("GITHUB_REPOSITORY is required for on-deny=close")
+    if not token:
+        raise GateError("github-token is required for on-deny=close")
+
+    normalized_api_url = api_url.rstrip("/")
+    number = event_number(verdict, event)
+    notes: list[str] = []
+
+    if label:
+        ensure_label(
+            repository=repository,
+            token=token,
+            api_url=normalized_api_url,
+            label=label,
+        )
+        add_label(
+            repository=repository,
+            token=token,
+            api_url=normalized_api_url,
+            number=number,
+            label=label,
+        )
+        notes.append(f"Labeled denied {verdict.gate} with {label}.")
+
+    if comment:
+        create_comment(
+            repository=repository,
+            token=token,
+            api_url=normalized_api_url,
+            number=number,
+            body=deny_comment_body(verdict),
+        )
+        notes.append(f"Commented on denied {verdict.gate}.")
+
+    close_denied(
+        verdict=verdict,
+        event=event,
+        repository=repository,
+        token=token,
+        api_url=normalized_api_url,
+    )
+    notes.append(f"Closed denied {verdict.gate} from {verdict.actor}.")
+    return notes
 
 
 def close_denied(
@@ -66,16 +135,82 @@ def close_denied(
     if verdict.gate == "pull-request":
         number = _event_number(event, "pull_request", "pull request")
         path = f"/repos/{repository}/pulls/{number}"
+        payload: dict[str, Any] = {"state": "closed"}
     else:
         number = _event_number(event, "issue", "issue")
         path = f"/repos/{repository}/issues/{number}"
+        payload = {"state": "closed", "state_reason": "not_planned"}
 
     request_json(
         "PATCH",
         f"{normalized_api_url}{path}",
         token,
-        {"state": "closed"},
+        payload,
     )
+
+
+def ensure_label(*, repository: str, token: str, api_url: str, label: str) -> None:
+    """Create the deny label if it does not already exist."""
+    try:
+        request_json(
+            "POST",
+            f"{api_url}/repos/{repository}/labels",
+            token,
+            {
+                "name": label,
+                "color": "b60205",
+                "description": "Closed by permissions policy",
+            },
+        )
+    except GateError as exc:
+        if "HTTP 422" in exc.message:
+            return
+        raise
+
+
+def add_label(
+    *, repository: str, token: str, api_url: str, number: int, label: str
+) -> None:
+    """Apply a label to a denied issue or pull request conversation."""
+    request_json(
+        "POST",
+        f"{api_url}/repos/{repository}/issues/{number}/labels",
+        token,
+        {"labels": [label]},
+    )
+
+
+def create_comment(
+    *, repository: str, token: str, api_url: str, number: int, body: str
+) -> None:
+    """Create an explanatory comment on a denied issue or pull request."""
+    request_json(
+        "POST",
+        f"{api_url}/repos/{repository}/issues/{number}/comments",
+        token,
+        {"body": body},
+    )
+
+
+def deny_comment_body(verdict: Verdict) -> str:
+    """Return the default comment body for a denied event."""
+    subject = "pull request" if verdict.gate == "pull-request" else verdict.gate
+    lines = [
+        f"This {subject} was closed by repository permissions policy.",
+        "",
+        f"Denied principal: `{verdict.actor}`",
+        f"Reason: {verdict.reason}",
+    ]
+    if verdict.message:
+        lines.extend(["", verdict.message])
+    return "\n".join(lines)
+
+
+def event_number(verdict: Verdict, event: dict[str, Any]) -> int:
+    """Return the GitHub issue/PR number for a verdict's event payload."""
+    if verdict.gate == "pull-request":
+        return _event_number(event, "pull_request", "pull request")
+    return _event_number(event, "issue", "issue")
 
 
 def request_json(method: str, url: str, token: str, payload: dict[str, Any]) -> None:
@@ -101,11 +236,11 @@ def request_json(method: str, url: str, token: str, payload: dict[str, Any]) -> 
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise GateError(
-            f"GitHub API returned HTTP {exc.code} while closing denied event: {detail}"
+            f"GitHub API returned HTTP {exc.code} while mutating denied event: {detail}"
         ) from exc
     except urllib.error.URLError as exc:
         raise GateError(
-            f"GitHub API request failed while closing denied event: {exc}"
+            f"GitHub API request failed while mutating denied event: {exc}"
         ) from exc
 
 
