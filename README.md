@@ -8,7 +8,7 @@ Keep the repo public. Gate the event metadata before trusting the event.
 
 ![gates: pull_request + issue](https://img.shields.io/badge/gates-pull__request%20%2B%20issue-7c3aed?style=flat)
 ![action: mise-backed](https://img.shields.io/badge/action-mise--backed-0ea5e9?style=flat)
-[![tests: 62](https://img.shields.io/badge/tests-62-brightgreen?style=flat)](test/)
+[![tests: 81](https://img.shields.io/badge/tests-81-brightgreen?style=flat)](test/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
 
 </div>
@@ -76,6 +76,18 @@ jobs:
 
 For enforcement workflows that should close denied events, use `on-deny: close` with write-capable workflow permissions. A denied event is labeled `permissions-denied`, receives an explanatory comment, is closed, and the Action still fails, leaving a visible audit signal. Denied issues are closed as not planned; denied pull requests are closed normally because GitHub does not provide PR close reasons.
 
+## Initialize a repo
+
+`permissions init` previews or writes a starter `permissions.toml` plus standard issue and pull request gate workflows. It is dry-run by default; pass `--write` to mutate files.
+
+```bash
+permissions init   --gate issue   --gate pull-request   --allow user:rikonor   --allow team:KnickKnackLabs/agents   --on-deny close   --membership-token-secret PERMISSIONS_MEMBERSHIP_TOKEN
+
+permissions init   --gate issue   --allow user:rikonor   --on-deny fail   --write
+```
+
+When team principals are present, init prints token setup guidance. Store a token with `read:org` as the named membership secret, then generated workflows pass it to the Action. In non-interactive shells, init requires the needed flags and exits with an actionable error instead of prompting.
+
 ## Policy model
 
 Each gate has a default posture plus explicit principal lists. `deny` entries win first, then `allow` entries, then the configured `default` fallback. This supports both fail-closed allowlists and fail-open deny lists.
@@ -136,7 +148,7 @@ readme build --check
 git diff --check
 ```
 
-The suite currently has **62 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
+The suite currently has **81 tests** across CLI integration, Action behavior, and policy helper coverage. The count is read from the repo at README build time.
 
 <div align="center">
 
