@@ -5,6 +5,7 @@
 #USAGE example "mise run test" header="Run all tests"
 #USAGE example "mise run test pull_request_gate" header="Run a specific suite by name"
 #USAGE example "mise run test --filter doctor" header="Filter tests by name"
+#USAGE example "mise run test --jobs 4" header="Run isolated BATS tests in parallel"
 set -euo pipefail
 
 TEST_DIR="$MISE_CONFIG_ROOT/test"
@@ -34,8 +35,8 @@ if ! $has_target; then
   resolved+=("$TEST_DIR/")
 fi
 
-bats --print-output-on-failure "${resolved[@]}"
+bats --print-output-on-failure ${resolved[@]+"${resolved[@]}"}
 
 if [ "${#args[@]}" -eq 0 ]; then
-  mise -C "$MISE_CONFIG_ROOT" run test:python
+  mise -C "$MISE_CONFIG_ROOT" run python:test
 fi

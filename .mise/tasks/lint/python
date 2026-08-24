@@ -17,5 +17,5 @@ done < <(
   done
 )
 
-ruff check "${targets[@]}"
-ruff format --check "${targets[@]}"
+ruff check ${targets[@]+"${targets[@]}"}
+ruff format --check ${targets[@]+"${targets[@]}"}

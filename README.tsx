@@ -292,7 +292,7 @@ message = "This issue was closed by repository policy."`}</CodeBlock>
         <Item>Run <Code>mise trust</Code> after cloning.</Item>
         <Item>Run <Code>mise install</Code> to install BATS, uv, codebase, and readme.</Item>
         <Item>Use <Code>mise run test</Code> for the full local suite.</Item>
-        <Item>Use <Code>mise run test:python</Code> when iterating only on policy helper unit tests.</Item>
+        <Item>Use <Code>mise run python:test</Code> when iterating only on policy helper unit tests.</Item>
         <Item>Use <Code>mise run lint:python</Code> for Ruff checks.</Item>
         <Item>Use <Code>mise run doctor</Code> to check README freshness, convention lints, and optional hook state.</Item>
         <Item>Regenerate docs with <Code>readme build</Code> after editing <Code>README.tsx</Code>.</Item>
