@@ -132,7 +132,7 @@ Separate GitHub workflow files run independently. If a test, build, or deploy wo
 1. Run `mise trust` after cloning.
 2. Run `mise install` to install BATS, uv, codebase, and readme.
 3. Use `mise run test` for the full local suite.
-4. Use `mise run test:python` when iterating only on policy helper unit tests.
+4. Use `mise run python:test` when iterating only on policy helper unit tests.
 5. Use `mise run lint:python` for Ruff checks.
 6. Use `mise run doctor` to check README freshness, convention lints, and optional hook state.
 7. Regenerate docs with `readme build` after editing `README.tsx`.
