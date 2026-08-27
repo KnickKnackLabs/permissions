@@ -18,5 +18,3 @@ ruff = "0.15.20"
 [_.codebase]
 name = "permissions"
 lint = ["@all"]
-# Codebase #143: uses-only security workflows currently trigger a parser error.
-lint_exclude = ["ci-lint-enforcement"]
