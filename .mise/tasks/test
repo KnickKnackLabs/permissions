@@ -1,42 +1,20 @@
 #!/usr/bin/env bash
-#MISE description="Run the full test suite"
+#MISE description="Run BATS and Python tests"
 #MISE dir="{{config_root}}"
-#USAGE arg "[args]" default="" var=#true help="Test suites or bats arguments"
-#USAGE example "mise run test" header="Run all tests"
-#USAGE example "mise run test pull_request_gate" header="Run a specific suite by name"
-#USAGE example "mise run test --filter doctor" header="Filter tests by name"
-#USAGE example "mise run test --jobs 4" header="Run isolated BATS tests in parallel"
+#USAGE arg "[args]" var=#true default="" help="BATS files, directories, and arguments"
+#USAGE example "mise run test" header="Run all BATS and Python tests"
+#USAGE example "mise run test test/pull_request_gate.bats" header="Run one BATS test file"
+#USAGE example "mise run test --filter doctor" header="Filter BATS tests by name"
 set -euo pipefail
 
-TEST_DIR="$MISE_CONFIG_ROOT/test"
+export BATS_DEFAULT_TEST_TARGET="$MISE_CONFIG_ROOT/test"
 
-args=()
-if [ -n "${usage_args:-}" ]; then
-  while IFS= read -r arg; do
-    [ -z "$arg" ] && continue
-    args+=("$arg")
-  done < <(printf '%s' "${usage_args}" | xargs printf '%s\n')
+run_python=false
+if [ "$#" -eq 0 ]; then
+  run_python=true
 fi
 
-resolved=()
-has_target=false
+bats --print-output-on-failure "$@"
 
-for arg in ${args[@]+"${args[@]}"}; do
-  if [[ "$arg" != -* && "$arg" != *.bats && -f "$TEST_DIR/$arg.bats" ]]; then
-    resolved+=("$TEST_DIR/$arg.bats")
-    has_target=true
-  else
-    [[ "$arg" == *.bats || -d "$arg" ]] && has_target=true
-    resolved+=("$arg")
-  fi
-done
-
-if ! $has_target; then
-  resolved+=("$TEST_DIR/")
-fi
-
-bats --print-output-on-failure ${resolved[@]+"${resolved[@]}"}
-
-if [ "${#args[@]}" -eq 0 ]; then
-  mise -C "$MISE_CONFIG_ROOT" run python:test
-fi
+$run_python || exit 0
+exec mise -C "$MISE_CONFIG_ROOT" run python:test

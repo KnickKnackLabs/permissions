@@ -20,10 +20,10 @@ permissions/
 ├── README.tsx                        # Source for generated README.md
 ├── README.md                         # Generated; keep in sync with README.tsx
 ├── CONTRIBUTING.md                   # Repo orientation surface
-├── .mise/tasks/test/_default         # Full suite runner for `mise run test`
+├── .mise/tasks/test                  # BATS default-target runner plus no-arg Python follow-up
 ├── .mise/tasks/doctor                # Local health checks and optional hook status
 ├── .mise/tasks/gate/pull-request     # Thin uv wrapper for the first gate command
-├── .mise/tasks/test/python           # Python unit tests for helper code
+├── .mise/tasks/python/test           # Python unit tests for helper code
 ├── .mise/tasks/lint/python           # Ruff check for Python task/library/test code
 ├── lib/permissions.py                # Shared gate parsing/evaluation/output helpers
 └── test/                             # BATS integration tests plus Python unit tests
@@ -37,6 +37,10 @@ mise install
 mise run test
 mise run doctor
 ```
+
+The test task delegates BATS target selection to `BATS_DEFAULT_TEST_TARGET`.
+With no arguments it runs the normal BATS directory and then Python unit tests;
+explicit BATS files, directories, and options pass through unchanged.
 
 `doctor` reports whether the optional local `codebase pre-commit` hook is installed.
 Install it in your clone when you want convention lints to run before every commit:
